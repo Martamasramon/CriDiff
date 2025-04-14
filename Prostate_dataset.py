@@ -10,7 +10,11 @@ from pathlib import Path
 from torch import nn
 import albumentations as A
 import cv2
+import re
 
+def sort_by_number(path):
+    numbers = re.findall(r'\d+', str(path))
+    return int(numbers[-1]) if numbers else 0
 
 def convert_image_to_fn(img_type, image):
     if image.mode != img_type:
@@ -37,35 +41,10 @@ class Dataset(data.Dataset):
         self.folder = folder
         self.image_size = image_size
         self.mode = mode
-        # maybe_convert_fn = partial(convert_image_to_fn, convert_image_to) if exists(convert_image_to) else nn.Identity()
         self.convert_image_to = convert_image_to
-
-        # mean_list = []
-        # std_list = []
-        # img_train_paths= os.path.join(folder, "images/train/")
-        # for i in np.arange(0, 1521):  # Prostate has 1521 images with name form 1.png to 1521.png
-        #     # Get height, width
-        #     # print(image_dir+"/"+str(i)+".tif")
-        #     img  = cv2.imread(str(img_train_paths + "/" + str(i + 1) + ".png"),0)
-        #     img_mean = np.mean(img)
-        #     img_std = np.std(img)
-        #     mean_list.append(img_mean)
-        #     std_list.append(img_std)
-        #
-        # img_test_paths= os.path.join(folder, "images/test/")
-        # for i in np.arange(0, 271):  # Prostate has 1521 images with name form 1.png to 1521.png
-        #     # Get height, width
-        #     # print(image_dir+"/"+str(i)+".tif")
-        #     img  = cv2.imread(str(img_test_paths + "/" + str(i + 1) + ".png"),0)
-        #     img_mean = np.mean(img)
-        #     img_std = np.std(img)
-        #     mean_list.append(img_mean)
-        #     std_list.append(img_std)
-        #
-        # self.mean = np.mean(mean_list)
-        # self.std = np.mean(std_list)
         self.mean = np.mean(51.93044825547968)
         self.std = np.mean(39.16262095837929)
+        
         assert mode == 'train' or mode == 'test'
         if mode == 'train':
             img_paths = os.path.join(folder, "images/train/")
@@ -78,36 +57,23 @@ class Dataset(data.Dataset):
             self.detail_paths = [p for ext in exts for p in Path(f'{detail_paths}').glob(f'**/*.{ext}')]
 
             self.transform = A.Compose([
-                # A.Lambda(image=maybe_convert_fn),
                 A.VerticalFlip(p=0.5),
                 A.HorizontalFlip(p=0.5),
                 A.Transpose(p=0.5),
                 A.ShiftScaleRotate(shift_limit=0.25, scale_limit=0.5, rotate_limit=90, border_mode=0, value=0, p=0.5),
-                # A.RandomCrop(height=image_size[0], width=image_size[1], p=1),
                 A.Resize(height=320, width=320, interpolation=cv2.INTER_NEAREST),
                 A.RandomCrop(height=image_size, width=image_size),
-                # A.Resize(height=256, width=256, interpolation=cv2.INTER_NEAREST),
-                # A.Normalize(mean,std)
-                # ToTensorV2()
             ], additional_targets={'body': 'mask', 'detail': 'mask'})
+            
         elif mode == 'test':
-            img_paths = os.path.join(folder, "images/test/")
-            self.img_paths = [p for ext in exts for p in Path(f'{img_paths}').glob(f'**/*.{ext}')]
-            mask_paths = os.path.join(folder, "masks/test/")
-            self.mask_paths = [p for ext in exts for p in Path(f'{mask_paths}').glob(f'**/*.{ext}')]
-
-            import re
-
-            def sort_by_number(path):
-                numbers = re.findall(r'\d+', str(path))
-                return int(numbers[-1]) if numbers else 0
-
-            self.img_paths = sorted(self.img_paths, key=sort_by_number)
-            self.mask_paths = sorted(self.mask_paths, key=sort_by_number)
+            img_paths      = os.path.join(folder, "images/test/")
+            self.img_paths = sorted([p for ext in exts for p in Path(f'{img_paths}').glob(f'**/*.{ext}')], key=sort_by_number)
+            
+            mask_paths      = os.path.join(folder, "masks/test/")
+            self.mask_paths = sorted([p for ext in exts for p in Path(f'{mask_paths}').glob(f'**/*.{ext}')], key=sort_by_number)
+            
             self.transform = A.Compose([
-                # A.Lambda(image=maybe_convert_fn),
                 A.Resize(height=256, width=256),
-                # ToTensorV2()
             ])
         else:
             raise ValueError
