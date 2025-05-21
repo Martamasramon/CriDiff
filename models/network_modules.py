@@ -1,36 +1,15 @@
 # Realtive import
 import sys
 sys.path.append('../blocks')
-import torch.nn.functional as F
 import torch
-from torch import nn
-# from module.ResNet import ConvNextBlock
+import torch.nn.functional as F
+from torch import nn, einsum
 import math
-from inspect import isfunction
-# from torch.fft import fft2, fftshift, ifft2, ifftshift
 import numpy as np
+from functools     import partial
+from network_utils import *
+from einops        import rearrange,repeat
 
-
-def normalization(channels):
-    """
-    Make a standard normalization layer.
-
-    :param channels: number of input channels.
-    :return: an nn.Module for normalization.
-    """
-    return GroupNorm32(32, channels)
-
-
-class GroupNorm32(nn.GroupNorm):
-    def forward(self, x):
-        return super().forward(x.float()).type(x.dtype)
-def zero_module(module):
-    """
-    Zero out the parameters of a module and return it.
-    """
-    for p in module.parameters():
-        p.detach().zero_()
-    return module
 
 class EMA():
     def __init__(self, beta):
@@ -46,7 +25,8 @@ class EMA():
         if old is None:
             return new
         return old * self.beta + (1 - self.beta) * new
-
+    
+    
 class Residual(nn.Module):
     def __init__(self, fn):
         super(Residual, self).__init__()
@@ -55,23 +35,48 @@ class Residual(nn.Module):
     def forward(self, x, context=None, *args, **kwargs):
         return self.fn(x, context, *args, **kwargs) + x
 
-class SinusoidalPosEmb(nn.Module):
+
+class RMSNorm(nn.Module):
     def __init__(self, dim):
-        super(SinusoidalPosEmb,self).__init__()
+        super().__init__()
+        self.g = nn.Parameter(torch.ones(1, dim, 1, 1))
+
+    def forward(self, x):
+        return F.normalize(x, dim = 1) * self.g * (x.shape[1] ** 0.5)
+
+
+class SinusoidalPosEmb(nn.Module):
+    def __init__(self, dim, theta = 10000):
+        super().__init__()
         self.dim = dim
+        self.theta = theta
 
     def forward(self, x):
         device = x.device
         half_dim = self.dim // 2
-        emb = math.log(10000) / (half_dim - 1)
+        emb = math.log(self.theta) / (half_dim - 1)
         emb = torch.exp(torch.arange(half_dim, device=device) * -emb)
         emb = x[:, None] * emb[None, :]
         emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
         return emb
 
+class RandomOrLearnedSinusoidalPosEmb(nn.Module):
+    """ following @crowsonkb 's lead with random (learned optional) sinusoidal pos emb """
+    """ https://github.com/crowsonkb/v-diffusion-jax/blob/master/diffusion/models/danbooru_128.py#L8 """
 
-# building block modules
+    def __init__(self, dim, is_random = False):
+        super().__init__()
+        assert divisible_by(dim, 2)
+        half_dim = dim // 2
+        self.weights = nn.Parameter(torch.randn(half_dim), requires_grad = not is_random)
 
+    def forward(self, x):
+        x = rearrange(x, 'b -> b 1')
+        freqs = x * rearrange(self.weights, 'd -> 1 d') * 2 * math.pi
+        fouriered = torch.cat((freqs.sin(), freqs.cos()), dim = -1)
+        fouriered = torch.cat((x, fouriered), dim = -1)
+        return fouriered
+    
 class Block(nn.Module):
     def __init__(self, dim, dim_out, groups = 8):
         super().__init__()
@@ -116,19 +121,6 @@ class ResnetBlock(nn.Module):
 
         return h + self.res_conv(x)
 
-def Upsample(dim, dim_out = None):
-    return nn.Sequential(
-        nn.Upsample(scale_factor = 2, mode = 'nearest'),
-        nn.Conv2d(dim, default(dim_out, dim), 3, padding = 1)
-    )
-
-from einops.layers.torch import Rearrange
-def Downsample(dim, dim_out = None):
-    return nn.Sequential(
-        Rearrange('b c (h p1) (w p2) -> b (c p1 p2) h w', p1 = 2, p2 = 2),
-        nn.Conv2d(dim * 4, default(dim_out, dim), 1)
-    )
-
 class LayerNorm(nn.Module):
     def __init__(self, dim, eps = 1e-5):
         super(LayerNorm, self).__init__()
@@ -150,80 +142,6 @@ class PreNorm(nn.Module):
     def forward(self, x, context=None):
         x = self.norm(x)
         return self.fn(x,context)
-
-
-
-# helpers functions
-def normalize_to_neg_one_to_one(img):
-    return img * 2 - 1
-
-def exists(x):
-    return x is not None
-
-def default(val, d):
-    if exists(val):
-        return val
-    return d() if isfunction(d) else d
-
-def cycle(dl):
-    while True:
-        for data in dl:
-            yield data
-
-def num_to_groups(num, divisor):
-    groups = num // divisor
-    remainder = num % divisor
-    arr = [divisor] * groups
-    if remainder > 0:
-        arr.append(remainder)
-    return arr
-
-def loss_backwards(fp16, loss, optimizer, **kwargs):
-    if fp16:
-        with amp.scale_loss(loss, optimizer) as scaled_loss:
-            scaled_loss.backward(**kwargs)
-    else:
-        loss.backward(**kwargs)
-
-def weight_init(module):
-    for n, m in module.named_children():
-        print('initialize: ' + n)
-        if isinstance(m, nn.Conv2d):
-            nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
-            if m.bias is not None:
-                nn.init.zeros_(m.bias)
-        elif isinstance(m, (nn.BatchNorm2d, nn.InstanceNorm2d)):
-            nn.init.ones_(m.weight)
-            if m.bias is not None:
-                nn.init.zeros_(m.bias)
-        elif isinstance(m, nn.Linear):
-            nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
-            if m.bias is not None:
-                nn.init.zeros_(m.bias)
-        elif isinstance(m, nn.Sequential):
-            weight_init(m)
-        elif isinstance(m, nn.ReLU):
-            pass
-        elif isinstance(m, nn.ModuleList):
-            for j, k in m.named_children():
-                for a, s in k.named_children():
-                    if isinstance(s, nn.Conv2d):
-                        nn.init.kaiming_normal_(s.weight, mode='fan_in', nonlinearity='relu')
-                        if s.bias is not None:
-                            nn.init.zeros_(s.bias)
-                    elif isinstance(s, (nn.BatchNorm2d, nn.InstanceNorm2d)):
-                        nn.init.ones_(s.weight)
-                        if s.bias is not None:
-                            nn.init.zeros_(s.bias)
-
-        else:
-            pass
-
-import copy
-
-from einops import rearrange, reduce,repeat
-from torch import nn, einsum
-
 
 class GlobalAvgPool(nn.Module):
     def __init__(self, flatten=False):
@@ -268,7 +186,6 @@ class ChannelAttention(nn.Module):
         max_out = self.fc(self.max_pool(x))
         out = avg_out + max_out
         return self.sigmoid(out)
-
 
 class SpatialAttention(nn.Module):
     def __init__(self, kernel_size=7):
@@ -318,9 +235,9 @@ class LinearAttention(nn.Module):
         out = rearrange(out, 'b h c (x y) -> b (h c) x y', h = self.heads, x = h, y = w)
         return self.to_out(out)
 
-class LinearCorssAttention(nn.Module):
+class LinearCrossAttention(nn.Module):
     def __init__(self, dim, context_in=None, heads = 4, dim_head = 32):
-        super(LinearCorssAttention, self).__init__()
+        super(LinearCrossAttention, self).__init__()
 
         context_in = default(context_in, dim)
         self.scale = dim_head ** -0.5
@@ -348,19 +265,8 @@ class LinearCorssAttention(nn.Module):
         context = torch.einsum('b h d n, b h e n -> b h d e', k, v)
 
         out = torch.einsum('b h d e, b h d n -> b h e n', context, q)
-        # sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
-        #
-        # if exists(mask):
-        #     mask = rearrange(mask, 'b ... -> b (...)')
-        #     max_neg_value = -torch.finfo(sim.dtype).max
-        #     mask = repeat(mask, 'b j -> (b h) () j', h=h)
-        #     sim.masked_fill_(~mask, max_neg_value)
-        #
-        # # attention, what we cannot get enough of
-        # attn = sim.softmax(dim=-1)
-        # out = torch.einsum('b h d e, b h d n -> b h e n', attn, q)
-
         out = rearrange(out, 'b h c (x y) -> b (h c) x y', h = self.heads, x = h, y = w)
+        
         return self.to_out(out)
 
 class CoreEnhance(nn.Module):
@@ -553,9 +459,6 @@ class ConvBlock(nn.Module):
         h = self.relu(h)
         return h
 
-
-
-
 class DilConv(nn.Module):
     def __init__(self, C_in, C_out, affine=True):
         super(DilConv, self).__init__()
@@ -570,184 +473,316 @@ class DilConv(nn.Module):
 
     def forward(self, x):
         return self.op(x)
+    
+    
+
+class BodyEnhance(nn.Module):
+    def __init__(self, iC_list, iSize_list, out_c):
+        super(BodyEnhance, self).__init__()
+        ic0, ic1, ic2, ic3 = iC_list
+        self.iS0, self.iS1, self.iS2, self.iS3 = iSize_list
+        # 1 column
+        self.col13 = ConvBlock(out_c, out_c)
+        self.col12 = ConvBlock(out_c + out_c, out_c)
+        self.col11 = ConvBlock(out_c + out_c, out_c)
+        self.col10 = ConvBlock(out_c + out_c + out_c, out_c)
+
+        # 2 column
+        self.col23 = ConvBlock(out_c, out_c)
+        self.col21 = ConvBlock(out_c + out_c, out_c)
+        self.col20 = ConvBlock(out_c + out_c + out_c, out_c)
+
+        # 3 column
+        self.col33 = ConvBlock(out_c, out_c)
+        self.col32 = ConvBlock(out_c + out_c + out_c, out_c)
+
+        # 4 column
+        self.col43 = ConvBlock(out_c, out_c)
+
+    def forward(self, xs):
+        # in_data_2, in_data_4, in_data_8, in_data_16, in_data_32
+        side_out = []
+        stage4 = xs[-1]
+        stage40 = self.col13(stage4)
+        stage41 = self.col23(stage40)
+        stage42 = self.col33(stage41)
+        stage43 = self.col43(stage42)
+        side_out.append(stage43)
+        stage40 = F.interpolate(stage40, size=(self.iS1,self.iS1), mode='bilinear')
+        stage41 = F.interpolate(stage41, size=(self.iS1,self.iS1), mode='bilinear')
+        stage42 = F.interpolate(stage42, size=(self.iS1,self.iS1), mode='bilinear')
+        stage43 = F.interpolate(stage43, size=(self.iS1,self.iS1), mode='bilinear')
+
+        stage31 = self.col12(torch.cat((stage40, xs[-2]), dim=1))
+        stage32 = self.col21(torch.cat((stage41, stage31), dim=1))
+        stage33 = self.col32(torch.cat((stage42, stage43, stage32), dim=1))
+        side_out.append(stage33)
+        stage31 = F.interpolate(stage31, size=(self.iS2,self.iS2), mode='bilinear')
+        stage32 = F.interpolate(stage32, size=(self.iS2,self.iS2), mode='bilinear')
+        stage33 = F.interpolate(stage33, size=(self.iS2,self.iS2), mode='bilinear')
+
+        stage21 = self.col11(torch.cat((stage31, xs[-3]), dim=1))
+        stage22 = self.col20(torch.cat((stage32, stage33, stage21), dim=1))
+        side_out.append(stage22)
+        stage21 = F.interpolate(stage21, size=(self.iS3,self.iS3), mode='bilinear')
+        stage22 = F.interpolate(stage22, size=(self.iS3,self.iS3), mode='bilinear')
+
+        stage1 = self.col10(torch.cat((stage21, stage22, xs[-4]), dim=1))
+        side_out.append(stage1)
+
+        return stage1, side_out
+
+class DetailEnhance(nn.Module):
+    def __init__(self, iC_list, iSize_list, out_c):
+        super(DetailEnhance, self).__init__()
+        ic0, ic1, ic2, ic3 = iC_list
+        self.iS0, self.iS1, self.iS2, self.iS3 = iSize_list
+        # 1 column
+        self.col13 = ConvBlock(out_c, out_c)
+        self.col12 = ConvBlock(out_c + out_c, out_c)
+        self.col11 = ConvBlock(out_c + out_c, out_c)
+        self.col10 = ConvBlock(out_c + out_c, out_c)
+
+        # 2 column
+        self.col22 = ConvBlock(out_c + out_c, out_c)
+        self.col21 = ConvBlock(out_c + out_c, out_c)
+        self.col20 = ConvBlock(out_c + out_c, out_c)
+
+        # 3 column
+        self.col31 = ConvBlock(out_c + out_c, out_c)
+        self.col30 = ConvBlock(out_c + out_c, out_c)
+
+        # 4 column
+        self.col40 = ConvBlock(out_c + out_c, out_c)
+
+    def forward(self, xs):
+        # in_data_2, in_data_4, in_data_8, in_data_16, in_data_32
+        side_out = []
+        stage4 = xs[-1]
+        stage4 = self.col13(stage4)
+        side_out.append(stage4)
+        stage4 = F.interpolate(stage4, size=(self.iS1,self.iS1), mode='bilinear')
+        stage31 = self.col12(torch.cat((stage4, xs[-2]), dim=1))
+        stage32 = self.col22(torch.cat((stage4, stage31), dim=1))
+        side_out.append(stage32)
+
+        stage31 = F.interpolate(stage31, size=(self.iS2,self.iS2), mode='bilinear')
+        stage32 = F.interpolate(stage32, size=(self.iS2,self.iS2), mode='bilinear')
+        stage21 = self.col11(torch.cat((stage31, xs[-3]), dim=1))
+        stage22 = self.col21(torch.cat((stage32, stage21), dim=1))
+        stage23 = self.col31(torch.cat((stage32, stage22), dim=1))
+        side_out.append(stage23)
+
+        stage21 = F.interpolate(stage21, size=(self.iS3,self.iS3), mode='bilinear')
+        stage22 = F.interpolate(stage22, size=(self.iS3,self.iS3), mode='bilinear')
+        stage23 = F.interpolate(stage23, size=(self.iS3,self.iS3), mode='bilinear')
+        stage11 = self.col10(torch.cat((stage21, xs[-4]), dim=1))
+        stage12 = self.col20(torch.cat((stage22, stage11), dim=1))
+        stage13 = self.col30(torch.cat((stage23, stage12), dim=1))
+        stage14 = self.col40(torch.cat((stage23, stage13), dim=1))
+        side_out.append(stage14)
+
+        return stage14, side_out
+
+class Decoder_body_detail(nn.Module):
+    def __init__(self,in_c, out_c):
+        super(Decoder_body_detail, self).__init__()
+        self.conv0 = nn.Conv2d(in_c, out_c, kernel_size=3, stride=1, padding=1)
+        self.bn0 = nn.BatchNorm2d(out_c)
+        self.ConvBlock0 = ConvBlock(out_c, out_c)
+
+        self.conv1 = nn.Conv2d(in_c + out_c, out_c, kernel_size=3, stride=1, padding=1)
+        self.bn1 = nn.BatchNorm2d(out_c)
+        self.ConvBlock1 = ConvBlock(out_c, out_c)
+
+        self.conv2 = nn.Conv2d(in_c + out_c, out_c, kernel_size=3, stride=1, padding=1)
+        self.bn2 = nn.BatchNorm2d(out_c)
+        self.ConvBlock2 = ConvBlock(out_c, out_c)
+
+        self.conv3 = nn.Conv2d(in_c + out_c, out_c, kernel_size=3, stride=1, padding=1)
+        self.bn3 = nn.BatchNorm2d(out_c)
+        # self.ConvBlock3 = ConvBlock(64, 32)
 
 
-class ConditionExtractor(nn.Module):
+    def forward(self, input1, input2):
+        out_list = []
+        out0 = F.relu(self.bn0(self.conv0(input1[0] + input2[0])), inplace=True)
+        out_list.append(out0)
+
+        out0 = F.interpolate(out0, size=input1[1].size()[2:], mode='bilinear')
+        out0 = self.ConvBlock0(out0)
+        out1 = torch.cat(((input1[1] + input2[1]), out0), dim=1)
+        out1 = F.relu(self.bn1(self.conv1(out1)), inplace=True)
+        out_list.append(out1)
+
+        out1 = F.interpolate(out1, size=input1[2].size()[2:], mode='bilinear')
+        out1 = self.ConvBlock1(out1)
+        out2 = torch.cat(((input1[2] + input2[2]), out1), dim=1)
+        out2 = F.relu(self.bn2(self.conv2(out2)), inplace=True)
+        out_list.append(out2)
+
+        out2 = F.interpolate(out2, size=input1[3].size()[2:], mode='bilinear')
+        out2 = self.ConvBlock2(out2)
+        out3 = torch.cat(((input1[3] + input2[3]), out2), dim=1)
+        out3 = F.relu(self.bn3(self.conv3(out3)), inplace=True)
+        out_list.append(out3)
+        return out_list
+
+
+class Decoder_detail(nn.Module):
+    def __init__(self):
+        super(Decoder_detail, self).__init__()
+        self.conv0 = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1)
+        self.bn0 = nn.BatchNorm2d(512)
+        self.conv1 = nn.Conv2d(512 + 256, 256, kernel_size=3, stride=1, padding=1)
+        self.bn1 = nn.BatchNorm2d(256)
+        self.conv2 = nn.Conv2d(256 + 128, 128, kernel_size=3, stride=1, padding=1)
+        self.bn2 = nn.BatchNorm2d(128)
+        self.conv3 = nn.Conv2d(128 + 64, 64, kernel_size=3, stride=1, padding=1)
+        self.bn3 = nn.BatchNorm2d(64)
+
+        # self.FEM1 = Frequency_Edge_Module(radius=16, channel=64)
+        # self.FEM2 = Frequency_Edge_Module(radius=16, channel=128)
+
+
+    def forward(self, input1, input2=[0, 0, 0, 0]):
+        out_list = []
+        out0 = F.relu(self.bn0(self.conv0(input1[0] + input2[0])), inplace=True)
+        out_list.append(out0)
+
+        out0 = F.interpolate(out0, size=input1[1].size()[2:], mode='bilinear')
+        out1 = F.relu(self.bn1(self.conv1(  torch.cat((input1[1],out0), dim=1) )), inplace=True)
+        out_list.append(out1)
+
+
+        out1 = F.interpolate(out1, size=input1[2].size()[2:], mode='bilinear')
+        # input12 = self.FEM2(input1[2])
+        out2 = F.relu(self.bn2(self.conv2(   torch.cat((input1[2],out1), dim=1 ))), inplace=True)
+        out_list.append(out2)
+
+
+        out2 = F.interpolate(out2, size=input1[3].size()[2:], mode='bilinear')
+        # input13 = self.FEM1(input1[3])
+        out3 = F.relu(self.bn3(self.conv3(  torch.cat((input1[3],out2), dim=1 ))), inplace=True)
+        out_list.append(out3)
+        return out_list
+
+class Decoder_body(nn.Module):
+    def __init__(self):
+        super(Decoder_body, self).__init__()
+        self.conv0 = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1)
+        self.bn0 = nn.BatchNorm2d(512)
+        self.conv1 = nn.Conv2d(512 + 256, 256, kernel_size=3, stride=1, padding=1)
+        self.bn1 = nn.BatchNorm2d(256)
+        self.conv2 = nn.Conv2d(256 + 128, 128, kernel_size=3, stride=1, padding=1)
+        self.bn2 = nn.BatchNorm2d(128)
+        self.conv3 = nn.Conv2d(128 + 64, 64, kernel_size=3, stride=1, padding=1)
+        self.bn3 = nn.BatchNorm2d(64)
+
+    def forward(self, input1, input2=[0, 0, 0, 0]):
+        out_list = []
+        out0 = F.relu(self.bn0(self.conv0(input1[0] + input2[0])), inplace=True)
+        out_list.append(out0)
+
+        out0 = F.interpolate(out0, size=input1[1].size()[2:], mode='bilinear')
+        out1 = F.relu(self.bn1(self.conv1(torch.cat((input1[1], out0), dim=1))), inplace=True)
+        out_list.append(out1)
+
+        out1 = F.interpolate(out1, size=input1[2].size()[2:], mode='bilinear')
+        out2 = F.relu(self.bn2(self.conv2(torch.cat((input1[2], out1), dim=1))), inplace=True)
+        out_list.append(out2)
+
+        out2 = F.interpolate(out2, size=input1[3].size()[2:], mode='bilinear')
+        out3 = F.relu(self.bn3(self.conv3(torch.cat((input1[3], out2), dim=1))), inplace=True)
+        out_list.append(out3)
+        return out_list
+ 
+
+class DWConv(nn.Module):
+    def __init__(self, in_channel, out_channel, kernel, dilation, padding):
+        super(DWConv, self).__init__()
+        self.out_channel = out_channel
+        self.DWConv = nn.Conv2d(in_channel, out_channel, kernel_size=kernel, padding=padding, groups=in_channel,
+                                dilation=dilation, bias=False)
+        self.bn = nn.BatchNorm2d(out_channel)
+        self.selu = nn.SELU()
+
+    def forward(self, x):
+        x = self.DWConv(x)
+        out = self.selu(self.bn(x))
+
+        return out
+
+
+class DWSConv(nn.Module):
+    def __init__(self, in_channel, out_channel, kernel, padding, kernels_per_layer):
+        super(DWSConv, self).__init__()
+        self.out_channel = out_channel
+        self.DWConv = nn.Conv2d(in_channel, in_channel * kernels_per_layer, kernel_size=kernel, padding=padding,
+                                groups=in_channel, bias=False)
+        self.bn = nn.BatchNorm2d(in_channel * kernels_per_layer)
+        self.selu = nn.SELU()
+        self.PWConv = nn.Conv2d(in_channel * kernels_per_layer, out_channel, kernel_size=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_channel)
+
+    def forward(self, x):
+        x = self.DWConv(x)
+        x = self.selu(self.bn(x))
+        out = self.PWConv(x)
+        out = self.selu(self.bn2(out))
+
+        return out
+    
+
+class Transformer(nn.Module):
     def __init__(
-        self,
-        dim,
-        cp_condition_net,
-        dim_mults=(1, 2, 4, 8),
-        self_condition = True,
-        with_time_emb = True,
-        residual = False,
+            self,
+            dim,
+            dim_head=32,
+            heads=4,
+            depth=1
     ):
-        super(ConditionExtractor, self).__init__()
-
-
-        # determizne dimensions
-        input_img_channels = 1
-        mask_channels= 1
-        self.input_img_channels = input_img_channels
-        self.mask_channels = mask_channels
-        self.self_condition = self_condition
-
-
-        # init_dim = default(init_dim, dim)
-
-        # self.cond_init_conv = nn.Conv2d(input_img_channels, init_dim, 7, padding = 3)
-
-        output_channels = mask_channels
-        mask_channels = mask_channels * (2 if self_condition else 1)
-        self.init_conv = nn.Conv2d(mask_channels, dim, 7, padding = 3)
-        self.init_conv_cond = nn.Conv2d(input_img_channels, dim, 7, padding = 3)
-
-        self.channels = self.input_img_channels
-        self.residual = residual
-        dims_rgb = [dim, *map(lambda m: dim * m, dim_mults)]
-        dims_mask = [dim, *map(lambda m: dim * m, dim_mults)]
-
-        in_out_rgb = list(zip(dims_rgb[:-1], dims_rgb[1:]))
-        in_out_mask = list(zip(dims_mask[:-1], dims_mask[1:]))
-        from functools import partial
-        block_klass = partial(ResnetBlock, groups = 8)
-
-
-        full_self_attn: tuple = (False, False, False, True)
-
-        if with_time_emb:
-            time_dim = dim
-            self.time_mlp = nn.Sequential(
-                SinusoidalPosEmb(dim),
-                nn.Linear(dim, dim * 4),
-                nn.GELU(),
-                nn.Linear(dim * 4, dim)
-            )
-        else:
-            time_dim = None
-            self.time_mlp = None
-
-        # attention related params
-
-        attn_kwargs = dict(
-            dim_head = 32,
-            heads = 4
-        )
-
-
-        self.downs_input = nn.ModuleList([])
-        self.downs_label_noise = nn.ModuleList([])
-
-        self.side_out_for_core = nn.ModuleList([])
-        self.side_out_for_boundary = nn.ModuleList([])
-
-
-        self.ups = nn.ModuleList([])
-
-        num_resolutions = len(in_out_mask)
-
-        in_out_mask = [(2,64),(64,128),(128,320),(320,512)]
-
-
-        for ind, (dim_in, dim_out) in enumerate(in_out_mask):
-            is_last = ind >= (num_resolutions - 1)
-
-
-            self.side_out_for_core.append(nn.ModuleList([
-                # nn.Conv2d(dim_in, 128, kernel_size=3, stride=1, padding=1),
-                # nn.BatchNorm2d(128),
-                ConvBlock(dim_out, 64)
+        super().__init__()
+        self.layers = nn.ModuleList([])
+        for _ in range(depth):
+            self.layers.append(nn.ModuleList([
+                Residual(Attention(dim, dim_head=dim_head, heads=heads)),
+                Residual(FeedForward(dim))
             ]))
 
-            self.side_out_for_boundary.append(nn.ModuleList([
-                # nn.Conv2d(dim_in, 128, kernel_size=3, stride=1, padding=1),
-                # nn.BatchNorm2d(128),
-                ConvBlock(dim_out, 64)
-            ]))
-
-        from module.pvt_v2 import PyramidVisionTransformerV2, pvt_v2_b2
-        backbone = pvt_v2_b2(True, cp_condition_net)
-        self.backbone = torch.nn.Sequential(*list(backbone.children()))[:-1]
-        self.decoder_core = CoreEnhance((64, 128, 256, 512), (8, 16, 32, 64), out_c =64)
-        self.decoder_boundary = BoundaryEnhance((64, 128, 256, 512), (8, 16, 32, 64), out_c =64)
-        self.core_boundary = DecoderCoreBoundary(out_c =64)
+    def forward(self, x):
+        for attn, ff in self.layers:
+            x = attn(x)
+            x = ff(x)
+        return x
 
 
+class Conditioning(nn.Module):
+    def __init__(self, fmap_size, dim):
+        super().__init__()
+        self.ff_parser_attn_map = nn.Parameter(torch.ones(dim, fmap_size, fmap_size))
 
+        self.norm_input = LayerNorm(dim, bias=True)
+        self.norm_condition = LayerNorm(dim, bias=True)
 
-    def normalization(channels):
-        """
-        Make a standard normalization layer.
+        self.block = ResnetBlock(dim, dim)
 
-        :param channels: number of input channels.
-        :return: an nn.Module for normalization.
-        """
-        return GroupNorm32(32, channels)
+    def forward(self, x, c):
+        # ff-parser in the paper, for modulating out the high frequencies
 
+        dtype = x.dtype
+        x = fft2(x)
+        x = x * self.ff_parser_attn_map
+        x = ifft2(x).real
+        x = x.type(dtype)
 
-    def get_pyramid(self, x):
-        pyramid = []
-        B = x.shape[0]
-        for i, module in enumerate(self.backbone):
-            if i in [0, 3, 6, 9]:
-                x, H, W = module(x)
-            elif i in [1, 4, 7, 10]:
-                for sub_module in module:
-                    x = sub_module(x, H, W)
-            else:
-                x = module(x)
-                x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
-                pyramid.append(x)
+        # eq 3 in paper
 
-        return pyramid
-    # def forward(self, input):
-    def forward(self, input):
+        normed_x = self.norm_input(x)
+        normed_c = self.norm_condition(c)
+        c = (normed_x * normed_c) * c
 
-        B,C,H,W, = input.shape
-        cond = input
+        # add an extra block to allow for more integration of information
+        # there is a downsample right after the Condition block (but maybe theres a better place to condition than right before the downsample)
 
-        pyramid = self.get_pyramid(cond)
-
-        if self.residual:
-            orig_x = input
-
-        side_out_body = []
-        for i, ModuleList in enumerate(self.side_out_for_core):
-            for conv in ModuleList:
-                side = conv(pyramid[i])
-                side_out_body.append(side)
-
-        side_out_detail = []
-        for i, ModuleList in enumerate(self.side_out_for_boundary):
-            for conv in ModuleList:
-                side = conv(pyramid[i])
-                side_out_detail.append(side)
-
-        body_side = [tensor.clone() for tensor in side_out_body]
-        # body_side = body_side[::-1]
-
-        detail_side = [tensor.clone() for tensor in side_out_detail]
-        # detail_side = detail_side[::-1]
-
-        _, out_body = self.decoder_core(body_side)
-        _, out_detail = self.decoder_boundary(detail_side)
-
-        out_body_detail = self.core_boundary(out_body, out_detail)
-        return out_body, out_detail, out_body_detail, pyramid[-1]
-
-
-if __name__ == '__main__':
-    import os
-
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
-    torch.cuda.set_device(1)
-    model = ConditionExtractor(
-        dim=64,
-        dim_mults=(1, 2, 4, 8),
-        with_time_emb=True,
-        residual=True
-    ).cuda()
-    input_R = torch.randn(1,1,256,256).cuda()
-    label_noise_t = torch.randn(1,1,256,256).cuda()
-    time = torch.randn(2).cuda()
-    X=model(input_R)
+        return self.block(c)

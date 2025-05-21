@@ -1,2 +1,4 @@
 /checkpoints
 /CriDiff_env
+/Datasets
+*.o*

@@ -11,41 +11,39 @@ import torch.utils
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
-
-# from tensorboardX import SummaryWriter
 from torch.utils.tensorboard import SummaryWriter
-
 import os
+
 os.environ['CUDA_VISIBLE_DEVICES']='0,1'
 parser = argparse.ArgumentParser("Diffusion")
 ##training setting
-parser.add_argument('--dataset_name', type=str, default='NCI-ISBI')
-parser.add_argument('--dataset_root', type=str, default='/home/david/datasets/ProstateSeg/NCI-ISBI')
-parser.add_argument('--cp_condition_net', type=str, default='./pvt_v2_b2.pth', help='checkpoint for condition network (like PVT)')
-parser.add_argument('--cp_stage1', type=str, default='./generative_pretrain/results/model-8.pt', help='checkpoint from stage 1')
-parser.add_argument('--checkpoint_save_dir', type=str, default='/media/oip/file/ltw2', help='other large space path to save ck')
-parser.add_argument('--checkpoint_interval', type=int, default= 20, help='checkpoint_every XX epoch to save')
+parser.add_argument('--dataset_name',        type=str, default='NCI-ISBI')
+parser.add_argument('--dataset_root',        type=str, default='/home/david/datasets/ProstateSeg/NCI-ISBI')
+parser.add_argument('--cp_condition_net',    type=str, default='./checkpoints/pvt_v2_b2.pth',   help='checkpoint for condition network (like PVT)')
+parser.add_argument('--cp_stage1',           type=str, default='./checkpoints/model-8.pt',      help='checkpoint from stage 1')
+parser.add_argument('--checkpoint_save_dir', type=str, default='/media/oip/file/ltw2',          help='other large space path to save ck')
+parser.add_argument('--checkpoint_interval', type=int, default= 20,                             help='checkpoint_every XX epoch to save')
 
 parser.add_argument('--save', type=str, default='./exp', help='experiment name')
 
-parser.add_argument('--batch_size', type=int, default=6, help='batch size')
-parser.add_argument('--epochs', type=int, default=2000, help='num of training epochs')
-parser.add_argument('--size', type=int, default=256)
-parser.add_argument('--learning_rate', type=float, default=0.00005, help='init learning rate')
-parser.add_argument('--momentum', type=float, default= 0.9, help='momentum')
-parser.add_argument('--weight_decay', type=float, default=3e-5, help='weight decay')
-parser.add_argument('--num_timesteps', type=int, default=500, help='batch size')
+parser.add_argument('--batch_size',     type=int,   default=6, help='batch size')
+parser.add_argument('--epochs',         type=int,   default=2000, help='num of training epochs')
+parser.add_argument('--size',           type=int,   default=256)
+parser.add_argument('--learning_rate',  type=float, default=0.00005, help='init learning rate')
+parser.add_argument('--momentum',       type=float, default= 0.9, help='momentum')
+parser.add_argument('--weight_decay',   type=float, default=3e-5, help='weight decay')
+parser.add_argument('--num_timesteps',  type=int,   default=500, help='batch size')
 
-parser.add_argument('--self_condition', type=bool, default=True)
-parser.add_argument('--beta_sched', type=str, default='linear')
-parser.add_argument('--numSteps', type=int, default=1, help='Number of steps to breakup the batchSize into.')
-parser.add_argument('--sample_batch_size', type=int, default=5)
-parser.add_argument('--num_ens', type=int, default=1)
-parser.add_argument('--sampling_timesteps', type=int, default=30)
+parser.add_argument('--self_condition',     type=bool,  default=True)
+parser.add_argument('--beta_sched',         type=str,   default='linear')
+parser.add_argument('--numSteps',           ype=int,    default=1, help='Number of steps to breakup the batchSize into.')
+parser.add_argument('--sample_batch_size',  type=int,   default=5)
+parser.add_argument('--num_ens',            type=int,   default=1)
+parser.add_argument('--sampling_timesteps', type=int,   default=30)
 
-parser.add_argument('--report_freq', type=float, default=100, help='report frequency')
-parser.add_argument('--print_freq', type=int, default=50)
-parser.add_argument('--job_name', type=str, default='PVT_GLenhanceV21_Diff_dim64_Prostate_init', help='job_name')
+parser.add_argument('--report_freq',    type=float, default=100, help='report frequency')
+parser.add_argument('--print_freq',     type=int,   default=50)
+parser.add_argument('--job_name',       type=str,   default='PVT_GLenhanceV21_Diff_dim64_Prostate_init', help='job_name')
 
 args, unparsed = parser.parse_known_args()
 
@@ -131,7 +129,9 @@ def main():
 
     device = device
     dev = dev
+    
     from module.DiffusionModel import DiffSOD
+    
     if dev != "cpu":
     # Initialize the pretrain weight
         save_dict = torch.load(args.cp_stage1)['model']
@@ -157,7 +157,8 @@ def main():
             fixed_state_dict2[name] = param
         fixed_state_dict2 = {k: v for k, v in fixed_state_dict.items() if k not in key_ex}
 
-        DiffModel = DiffSOD(args, sampling_timesteps=args.sampling_timesteps if args.sampling_timesteps > 0 else None)
+        unet = UNet_Attn(dim=64, dim_mults=(1, 2, 4, 8), cp_condition_net = args.cp_condition_net, self_condition=args.self_condition, with_time_emb=True,residual=False)
+        DiffModel = DiffSOD(args, model=model,sampling_timesteps=args.sampling_timesteps if args.sampling_timesteps > 0 else None)
         DiffModel.model.load_state_dict(fixed_state_dict2, strict=False)
         model = DDP(DiffModel.cuda(), device_ids=[local_rank], find_unused_parameters=False)
 

@@ -20,7 +20,9 @@ parser = argparse.ArgumentParser("Diffusion infer")
 # Path save Eval log.
 parser.add_argument("--loadDir", type=str, default='./exp/20240221-133240_5e-05_linear_PVT_GLenhanceV21_Diff_dim64_Prostate_init')
 # Path load ck files.
-parser.add_argument("--checkpoint", type=str, default='./checkpoints/pvt_v2_b2.pth')
+parser.add_argument("--checkpoint", type=str, default='./checkpoints/dummy_model.pt')
+parser.add_argument('--cp_condition_net', type=str, default='./checkpoints/pvt_v2_b2.pth', help='checkpoint for condition network (like PVT)')
+parser.add_argument('--cp_stage1', type=str, default='./checkpoints/dummy_model.pt', help='checkpoint from stage 1')
 parser.add_argument("--beta_sched", type=str, default='linear', help='cosine or linear')
 parser.add_argument("--num_timesteps", type=float, default=500, help="Name of the .json model file to load in. Ex: model_params_358e_450000s.pkl")
 parser.add_argument('--size', type=int, default=256, help='test_size')
@@ -74,23 +76,30 @@ def main():
     # Load checkpoint to model
     save_dict  = torch.load(args.checkpoint)
     new_state_dict = OrderedDict()
-    for k, v in save_dict['model_state_dict'].items():
+    
+    print(save_dict.keys())
+    for k, v in save_dict.items(): #    for k, v in save_dict['model_state_dict'].items():
         name = k[7:] if k.startswith('module.') else k  
+        
+        if k.startswith('module.'):
+            print('HAHAHA')
         new_state_dict[name] = v
-    diffusion.load_state_dict(new_state_dict, strict=True)
+        
+        
+    # diffusion.load_state_dict(new_state_dict, strict=True)
 
+    # # Evaluate
+    # score_metricsC = epoch_evaluating(diffusion, args.checkpoint, test_dataloader, device, evaluate_single)
+    # fg_dice         = score_metricsC["f1"].item()       # baseline 80 sota 86
+    # score_iou_poly  = score_metricsC["iou_poly"].item()
+    # score_avg_msd   = score_metricsC["avg_msd"].item()  # baseline 2.16 sota 1.96
+    # score_avg_asd   = score_metricsC["avg_asd"].item()  # baseline 2.16 sota 1.96
 
-    score_metricsC = epoch_evaluating(diffusion, args.checkpoint, test_dataloader, device, evaluate_single)
-    fg_dice         = score_metricsC["f1"].item()       # baseline 80 sota 86
-    score_iou_poly  = score_metricsC["iou_poly"].item()
-    score_avg_msd   = score_metricsC["avg_msd"].item()  # baseline 2.16 sota 1.96
-    score_avg_asd   = score_metricsC["avg_asd"].item()  # baseline 2.16 sota 1.96
-
-    print('dataset_name {}'.format(args.dataset_name))
-    print('FG_Dice %f',     fg_dice)
-    print('Iou_poly %f',    score_iou_poly)
-    print('MSD %f',         score_avg_msd)
-    print('ASD %f',         score_avg_asd)
+    # print('dataset_name {}'.format(args.dataset_name))
+    # print('FG_Dice %f',     fg_dice)
+    # print('Iou_poly %f',    score_iou_poly)
+    # print('MSD %f',         score_avg_msd)
+    # print('ASD %f',         score_avg_asd)
 
 
 def epoch_evaluating(model, checkpoint_file, test_dataloader, device, criteria_metrics):

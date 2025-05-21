@@ -26,7 +26,7 @@ def exists(x):
     return x is not None
 
 
-class Dataset(data.Dataset):
+class MyDataset(data.Dataset):
     def __init__(
             self,
             folder,
