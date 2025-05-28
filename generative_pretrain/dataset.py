@@ -10,7 +10,6 @@ class MyDataset(Dataset):
         img_path,
         image_size,
         exts                    = ['jpg', 'jpeg', 'png', 'tiff'],
-        augment_horizontal_flip = False,
         use_histo               = False, 
         use_t2w                 = False, 
         is_pretrain             = True, 
@@ -29,13 +28,11 @@ class MyDataset(Dataset):
             T.CenterCrop(image_size),
             T.Resize(image_size//2),
             T.Resize(image_size),
-            T.RandomHorizontalFlip() if augment_horizontal_flip else nn.Identity(),
             T.ToTensor(),
         ])
         
         self.label_transform = T.Compose([
             T.CenterCrop(image_size),
-            T.RandomHorizontalFlip() if augment_horizontal_flip else nn.Identity(),
             T.ToTensor(), 
         ])
 
@@ -56,8 +53,8 @@ class MyDataset(Dataset):
             embed_t2w = torch.load(item["T2W"],weights_only=True) # torch.load(map_location=torch.device("cpu")
             sample['T2W'] = embed_t2w
 
-        sample['Image'] = self.transform(img)
-        sample['Label'] = self.label_transform(img)
+        sample['LowRes']  = self.transform(img)
+        sample['HighRes'] = self.label_transform(img)
         
         return sample
     

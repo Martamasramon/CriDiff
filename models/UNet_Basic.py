@@ -29,9 +29,10 @@ class UNet_Basic(nn.Module):
         self.mask_channels      = 1
         self.side_unit_channel  = 64
 
-        output_channels = self.mask_channels
-        mask_channels   = self.mask_channels * (2 if self_condition else 1)
-        self.init_conv  = nn.Conv2d(mask_channels, dim, 7, padding = 3)
+        cond_channels       = 1  # conditioning image
+        self_cond_channels  = 1 if self_condition else 0
+        input_channels      = self.mask_channels + cond_channels + self_cond_channels
+        self.init_conv      = nn.Conv2d(input_channels, dim, 7, padding = 3)
 
         self.channels = self.input_img_channels
         self.residual = residual
@@ -94,7 +95,7 @@ class UNet_Basic(nn.Module):
 
         self.final_res_block = block_klass(dim, dim, time_emb_dim = time_dim)
         self.final_conv      = nn.Sequential(
-            nn.Conv2d(dim, output_channels, 1),
+            nn.Conv2d(dim, self.mask_channels, 1),
         )
 
 
@@ -108,53 +109,49 @@ class UNet_Basic(nn.Module):
         return GroupNorm32(32, channels)
 
 
-    def forward(self, input_x, time, x_self_cond):     
+    def forward(self, input_x, time, x_self_cond=None, cond=None):     
         B,C,H,W, = input_x.shape
         device   = input_x.device
         x = input_x
         
         if self.self_condition:
-            tens = torch.zeros((B,1,H,W)).to(device)
-            x_self_cond = default(x_self_cond, lambda: torch.zeros_like(tens))
+            x_self_cond = default(x_self_cond, lambda: torch.zeros_like(input_x))
             x = torch.cat((x, x_self_cond), dim=1)
+            
+        if cond is not None:
+            x = torch.cat((x, cond), dim=1)
+            
         if self.residual:
             orig_x = input_x
 
         x = self.init_conv(x)
         t = self.time_mlp(time) if exists(self.time_mlp) else None
 
-        label_noise_side = []
-        num = 0
-        
-        try:
+        label_noise_side = []        
+        try: ####### <------ redundant? check with structure defined above.
             for convnext, convnext2, downsample in self.downs_label_noise:
                 x = convnext(x, t)
                 label_noise_side.append(x)
                 x = convnext2(x, t)
                 label_noise_side.append(x)
                 x = downsample(x)
-                num = num + 1
         except:
             for convnext, convnext2 in self.downs_label_noise:
                 x = convnext(x, t)
                 label_noise_side.append(x)
                 x = convnext2(x, t)
                 label_noise_side.append(x)
-                num = num + 1
 
         x = self.mid_block1(x, t)
         x = self.mid_attn(x)
         x = self.mid_block2(x, t)
-        num = 0
-        for convnext, convnext2, upsample in self.ups:
 
+        for convnext, convnext2, upsample in self.ups:
             x = torch.cat((x, label_noise_side.pop()), dim=1)
             x = convnext(x, t)
             x = torch.cat((x, label_noise_side.pop()), dim=1)
-
             x = convnext2(x, t)
             x = upsample(x)
-            num = num + 1
 
         if self.residual:
             return self.final_conv(x)

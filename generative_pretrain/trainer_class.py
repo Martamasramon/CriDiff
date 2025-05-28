@@ -162,7 +162,7 @@ class Trainer(object):
                     data = {k: v.to(device) for k, v in data.items()}
 
                     with self.accelerator.autocast():
-                        loss = self.model(data['Image'], label=data['Label'])
+                        loss = self.model(data['HighRes'], label=data['HighRes'], cond=data['LowRes'])
                         loss = loss / self.gradient_accumulate_every
                         total_loss += loss.item()
 

@@ -95,7 +95,7 @@ class MyDataset(data.Dataset):
             # histo_embedding =
 
             transform  = self.transform(image=np.array(img))
-            image_data = torch.from_numpy(transform['image']).float().unsqueeze(dim=0)
+            image_data = torch.from_numpy(transform['LowRes']).float().unsqueeze(dim=0)
 
             return image_data
 
@@ -105,7 +105,7 @@ class MyDataset(data.Dataset):
             img = convert_image_to_fn(self.convert_image_to, img)
 
             transform = self.transform(image=np.array(img), mask=np.array(mask))
-            image_data = transform['image']
+            image_data = transform['LowRes']
             
             #image_name = str(self.img_paths[index]).split('/')[-1].split('.')[0]
             image_data = torch.from_numpy(image_data).float().unsqueeze(dim=0)

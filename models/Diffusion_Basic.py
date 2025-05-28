@@ -147,8 +147,8 @@ class Diffusion_Basic(nn.Module):
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
 
-    def model_predictions(self, x, t, x_self_cond = None, clip_x_start = False, rederive_pred_noise = False):
-        model_output = self.model.forward(x, t, x_self_cond)
+    def model_predictions(self, x, t, x_self_cond = None, cond=None, clip_x_start = False, rederive_pred_noise = False):
+        model_output = self.model.forward(x, t, x_self_cond, cond=cond)
         maybe_clip = partial(torch.clamp, min = -1., max = 1.) if clip_x_start else identity
 
         if self.objective == 'pred_noise':
@@ -173,8 +173,8 @@ class Diffusion_Basic(nn.Module):
         return ModelPrediction(pred_noise, x_start)
     
 
-    def p_mean_variance(self, x, t, x_self_cond = None, clip_denoised = True):
-        preds = self.model_predictions(x, t, x_self_cond)
+    def p_mean_variance(self, x, t, x_self_cond = None, cond=None, clip_denoised = True):
+        preds = self.model_predictions(x, t, x_self_cond, cond=cond)
         x_start = preds.pred_x_start
 
         if clip_denoised:
@@ -185,18 +185,18 @@ class Diffusion_Basic(nn.Module):
 
 
     @torch.no_grad()
-    def p_sample(self, x, t: int, x_self_cond = None):
+    def p_sample(self, x, t: int, x_self_cond=None, cond=None):
         b, *_, device = *x.shape, self.device
         batched_times = torch.full((b,), t, device = device, dtype = torch.long)
         
-        model_mean, _, model_log_variance, x_start = self.p_mean_variance(x = x, t = batched_times, x_self_cond = x_self_cond, clip_denoised = True)
+        model_mean, _, model_log_variance, x_start = self.p_mean_variance(x = x, t = batched_times, x_self_cond=x_self_cond, cond=cond, clip_denoised = True)
         noise       = torch.randn_like(x) if t > 0 else 0. # no noise if t == 0
         pred_img    = model_mean + (0.5 * model_log_variance).exp() * noise
         return pred_img, x_start
 
 
     @torch.no_grad()
-    def p_sample_loop(self, shape, return_all_timesteps = False):
+    def p_sample_loop(self, shape, return_all_timesteps = False, cond=None):
         batch, device = shape[0], self.device
         img           = torch.randn(shape, device = device)
         imgs          = [img]
@@ -205,7 +205,7 @@ class Diffusion_Basic(nn.Module):
         # for t in tqdm(reversed(range(0, self.num_timesteps)), desc = 'sampling loop time step', total = self.num_timesteps):
         for t in reversed(range(0, self.num_timesteps)):
             self_cond = x_start if self.self_condition else None
-            img, x_start = self.p_sample(img, t, self_cond)
+            img, x_start = self.p_sample(img, t, self_cond, cond=cond)
             imgs.append(img)
 
         ret = img if not return_all_timesteps else torch.stack(imgs, dim = 1)
@@ -270,7 +270,7 @@ class Diffusion_Basic(nn.Module):
                 extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise)
 
 
-    def p_losses(self, x_start, t, noise = None, offset_noise_strength = None, label=None):
+    def p_losses(self, x_start, t, noise = None, offset_noise_strength = None, label=None, cond=None):
         b, c, h, w              = x_start.shape
         noise                   = default(noise, lambda: torch.randn_like(x_start))
         offset_noise_strength   = default(offset_noise_strength, self.offset_noise_strength)         # offset noise - https://www.crosslabs.org/blog/diffusion-with-offset-noise
@@ -287,11 +287,11 @@ class Diffusion_Basic(nn.Module):
         x_self_cond = None
         if self.self_condition and random() < 0.5:
             with torch.no_grad():
-                x_self_cond = self.model_predictions(x, t).pred_x_start
+                x_self_cond = self.model_predictions(x, t, cond=cond).pred_x_start  
                 x_self_cond.detach_()
 
         # predict and take gradient step
-        model_out = self.model(x, t, x_self_cond)
+        model_out = self.model(x, t, x_self_cond, cond=cond)
 
         if self.objective == 'pred_noise':
             target = noise
@@ -313,10 +313,10 @@ class Diffusion_Basic(nn.Module):
         return loss.mean()
 
 
-    def forward(self, img, label=None, *args, **kwargs):
+    def forward(self, img, label=None, cond=None, *args, **kwargs):
         b, c, h, w, device, img_size, = *img.shape, img.device, self.image_size
         assert h == img_size and w == img_size, f'height and width of image must be {img_size}'
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
 
         img = self.normalize(img)
-        return self.p_losses(img, t, label=label, *args, **kwargs)
+        return self.p_losses(img, t, label=label, cond=cond, *args, **kwargs)
