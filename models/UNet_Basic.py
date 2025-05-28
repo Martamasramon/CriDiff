@@ -128,19 +128,12 @@ class UNet_Basic(nn.Module):
         t = self.time_mlp(time) if exists(self.time_mlp) else None
 
         label_noise_side = []        
-        try: ####### <------ redundant? check with structure defined above.
-            for convnext, convnext2, downsample in self.downs_label_noise:
-                x = convnext(x, t)
-                label_noise_side.append(x)
-                x = convnext2(x, t)
-                label_noise_side.append(x)
-                x = downsample(x)
-        except:
-            for convnext, convnext2 in self.downs_label_noise:
-                x = convnext(x, t)
-                label_noise_side.append(x)
-                x = convnext2(x, t)
-                label_noise_side.append(x)
+        for convnext, convnext2, downsample in self.downs_label_noise:
+            x = convnext(x, t)
+            label_noise_side.append(x)
+            x = convnext2(x, t)
+            label_noise_side.append(x)
+            x = downsample(x)
 
         x = self.mid_block1(x, t)
         x = self.mid_attn(x)

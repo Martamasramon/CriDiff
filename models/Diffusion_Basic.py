@@ -205,7 +205,7 @@ class Diffusion_Basic(nn.Module):
         # for t in tqdm(reversed(range(0, self.num_timesteps)), desc = 'sampling loop time step', total = self.num_timesteps):
         for t in reversed(range(0, self.num_timesteps)):
             self_cond = x_start if self.self_condition else None
-            img, x_start = self.p_sample(img, t, self_cond, cond=cond)
+            img, x_start = self.p_sample(img, t, x_self_cond=self_cond, cond=cond)
             imgs.append(img)
 
         ret = img if not return_all_timesteps else torch.stack(imgs, dim = 1)
@@ -256,10 +256,10 @@ class Diffusion_Basic(nn.Module):
 
 
     @torch.no_grad()
-    def sample(self, batch_size = 16, return_all_timesteps = False):
+    def sample(self, batch_size = 16, return_all_timesteps = False, cond=None):
         image_size, channels = self.image_size, self.channels
         sample_fn           = self.p_sample_loop if not self.is_ddim_sampling else self.ddim_sample
-        return sample_fn((batch_size, channels, image_size, image_size), return_all_timesteps = return_all_timesteps)
+        return sample_fn((batch_size, channels, image_size, image_size), return_all_timesteps = return_all_timesteps, cond=cond)
 
 
     @autocast(enabled = False)
@@ -270,7 +270,7 @@ class Diffusion_Basic(nn.Module):
                 extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise)
 
 
-    def p_losses(self, x_start, t, noise = None, offset_noise_strength = None, label=None, cond=None):
+    def p_losses(self, x_start, t, noise = None, offset_noise_strength = None, cond=None):
         b, c, h, w              = x_start.shape
         noise                   = default(noise, lambda: torch.randn_like(x_start))
         offset_noise_strength   = default(offset_noise_strength, self.offset_noise_strength)         # offset noise - https://www.crosslabs.org/blog/diffusion-with-offset-noise
@@ -278,12 +278,11 @@ class Diffusion_Basic(nn.Module):
         if offset_noise_strength > 0.:
             offset_noise = torch.randn(x_start.shape[:2], device = self.device)
             noise += offset_noise_strength * rearrange(offset_noise, 'b c -> b c 1 1')
-
-        # noise sample
+           
         x = self.q_sample(x_start = x_start, t = t, noise = noise)
 
-        # if doing self-conditioning, 50% of the time, predict x_start from current set of times and condition 
-        # with unet with that this technique will slow down training by 25%, but seems to lower FID significantly
+        # self-conditioning. 50% of the time, predict x_start from current set of times and condition with unet
+        #                   slows down training by 25%, but seems to lower FID significantly
         x_self_cond = None
         if self.self_condition and random() < 0.5:
             with torch.no_grad():
@@ -294,17 +293,14 @@ class Diffusion_Basic(nn.Module):
         model_out = self.model(x, t, x_self_cond, cond=cond)
 
         if self.objective == 'pred_noise':
-            target = noise
+            target = noise  
         elif self.objective == 'pred_x0':
-            target = x_start
+            target = x_start  # Predict high-res directly
         elif self.objective == 'pred_v':
             v = self.predict_v(x_start, t, noise)
             target = v
         else:
             raise ValueError(f'unknown objective {self.objective}')
-
-        if label is not None:
-            target  = self.normalize(label)
             
         loss = F.mse_loss(model_out, target, reduction = 'none')
         loss = reduce(loss, 'b ... -> b', 'mean')
@@ -313,10 +309,9 @@ class Diffusion_Basic(nn.Module):
         return loss.mean()
 
 
-    def forward(self, img, label=None, cond=None, *args, **kwargs):
+    def forward(self, img, cond=None, *args, **kwargs):
         b, c, h, w, device, img_size, = *img.shape, img.device, self.image_size
         assert h == img_size and w == img_size, f'height and width of image must be {img_size}'
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
 
-        img = self.normalize(img)
-        return self.p_losses(img, t, label=label, cond=cond, *args, **kwargs)
+        return self.p_losses(self.normalize(img), t, cond=cond, *args, **kwargs)

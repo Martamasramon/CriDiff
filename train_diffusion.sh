@@ -20,6 +20,6 @@ export PATH="CriDiff_env/bin:$PATH"
 
 cd generative_pretrain
 
-python3 train_generator_accelerate.py --beta_schedule 'cosine' --results_folder './results_beta' 
+python3 train_generator_accelerate.py
 
 date

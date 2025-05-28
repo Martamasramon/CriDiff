@@ -34,7 +34,7 @@ class Trainer(object):
         *,
         batch_size                  = 16,
         gradient_accumulate_every   = 1,
-        augment_horizontal_flip     = True,
+        # augment_horizontal_flip     = True,
         lr                          = 1e-4,
         train_num_steps             = 100000,
         ema_update_every            = 10,
@@ -79,7 +79,7 @@ class Trainer(object):
         self.max_grad_norm      = max_grad_norm
 
         # dataset and dataloader
-        self.ds     = MyDataset(input_folder, self.image_size, augment_horizontal_flip = augment_horizontal_flip)
+        self.ds     = MyDataset(input_folder, self.image_size) 
         dl          = DataLoader(self.ds, batch_size = batch_size, shuffle = True, pin_memory = True, num_workers = 0)
         dl          = self.accelerator.prepare(dl)
         self.dl     = cycle(dl)
@@ -154,7 +154,6 @@ class Trainer(object):
         with tqdm(initial = self.step, total = self.train_num_steps, disable = not accelerator.is_main_process) as pbar:
 
             while self.step < self.train_num_steps:
-
                 total_loss = 0.
 
                 for _ in range(self.gradient_accumulate_every):
@@ -162,7 +161,7 @@ class Trainer(object):
                     data = {k: v.to(device) for k, v in data.items()}
 
                     with self.accelerator.autocast():
-                        loss = self.model(data['HighRes'], label=data['HighRes'], cond=data['LowRes'])
+                        loss = self.model(data['HighRes'], cond=data['LowRes'])
                         loss = loss / self.gradient_accumulate_every
                         total_loss += loss.item()
 
@@ -191,7 +190,8 @@ class Trainer(object):
                         with torch.no_grad():
                             milestone = self.step // self.sample_every
                             batches = num_to_groups(self.num_samples, self.batch_size)
-                            all_images_list = list(map(lambda n: self.ema.ema_model.sample(batch_size=n), batches))
+                            sample_lowres = data['LowRes'][:self.num_samples].to(device)
+                            all_images_list = list(map(lambda n: self.ema.ema_model.sample(batch_size=n, cond=sample_lowres), batches))
 
                         all_images = torch.cat(all_images_list, dim = 0)
 

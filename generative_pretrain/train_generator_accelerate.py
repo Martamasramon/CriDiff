@@ -32,14 +32,10 @@ parser.add_argument('--ema_decay',          type=float,default=0.995)
 
 args, unparsed = parser.parse_known_args()
 
-"""
-Try:
---timesteps 400 --sampling_timesteps 100 --results_folder './results_timesteps' 
---beta_schedule 'cosine' --results_folder './results_beta' 
---ema_decay 0.999 --lr 0.00005 --results_folder './results_ema' 
-"""
+
 
 def main():
+    print('Version with updated p_loss function!')
     accelerator = Accelerator(split_batches=True, mixed_precision='no')
 
     model = UNet_Basic(

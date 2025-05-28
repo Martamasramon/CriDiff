@@ -26,8 +26,8 @@ class MyDataset(Dataset):
         
         self.transform = T.Compose([
             T.CenterCrop(image_size),
-            T.Resize(image_size//2),
-            T.Resize(image_size),
+            T.Resize(image_size//2, interpolation=T.InterpolationMode.NEAREST),
+            T.Resize(image_size,    interpolation=T.InterpolationMode.NEAREST),
             T.ToTensor(),
         ])
         
