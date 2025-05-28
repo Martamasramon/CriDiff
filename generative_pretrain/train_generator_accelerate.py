@@ -6,52 +6,72 @@ import argparse
 import torch.nn as nn
 from accelerate import Accelerator
 import os
-from denoising_diffusion_pytorch import GaussianDiffusion, Trainer
-from UNet_Basic import UNet_Basic
-    
+import sys
+sys.path.append('../models')
+from Diffusion_Basic import Diffusion_Basic
+from UNet_Basic      import UNet_Basic
+from trainer_class   import Trainer
+
 os.environ['CUDA_VISIBLE_DEVICES']='0,1'
 parser = argparse.ArgumentParser("Diffusion")
+# UNet
+parser.add_argument('--img_size',           type=int,  default=64)
 parser.add_argument('--self_condition',     type=bool, default=True)
-parser.add_argument('--batch_size',         type=int,  default=16, help='batch size')
-parser.add_argument('--train_num_steps',    type=int,  default=40000, help='num of training epochs')
-parser.add_argument('--num_timesteps',      type=int,  default=500)
-parser.add_argument('--size',               type=int,  default=128)
-parser.add_argument('--dataset_root',       type=str,  default='/home/david/datasets/ProstateSeg/NCI-ISBI/images/train')
-parser.add_argument('--job_name',           type=str,  default='experiments_name', help='note for this run')
+parser.add_argument('--dim_mults',          type=int, nargs='+', default=[1, 2, 4, 8])
+# Diffusion
+parser.add_argument('--timesteps',          type=int,  default=1000)
+parser.add_argument('--sampling_timesteps', type=int,  default=150)
+parser.add_argument('--beta_schedule',      type=str,  default='linear')
+# Training
+parser.add_argument('--data_folder',        type=str,  default='/cluster/project7/backup_masramon/IQT/ADC/')
+parser.add_argument('--results_folder',     type=str,  default='./results')
+parser.add_argument('--batch_size',         type=int,  default=16)
+parser.add_argument('--lr',                 type=float,default=8e-5)
+parser.add_argument('--n_epochs',           type=int,  default=40000)
+parser.add_argument('--ema_decay',          type=float,default=0.995)
 
 args, unparsed = parser.parse_known_args()
+
+"""
+Try:
+--timesteps 400 --sampling_timesteps 100 --results_folder './results_timesteps' 
+--beta_schedule 'cosine' --results_folder './results_beta' 
+--ema_decay 0.999 --lr 0.00005 --results_folder './results_ema' 
+"""
 
 def main():
     accelerator = Accelerator(split_batches=True, mixed_precision='no')
 
     model = UNet_Basic(
-        dim             = 64,
-        dim_mults       = (1, 2, 4, 8),
+        dim             = args.img_size,
+        dim_mults       = tuple(args.dim_mults),
         self_condition  = args.self_condition,
     )
 
-    diffusion = GaussianDiffusion(
+    diffusion = Diffusion_Basic(
         model,
-        image_size          = args.size,
-        timesteps           = args.num_timesteps,
-        sampling_timesteps  = 150,
-        beta_schedule       = 'linear'
+        image_size          = args.img_size,
+        timesteps           = args.timesteps,
+        sampling_timesteps  = args.sampling_timesteps,
+        beta_schedule       = args.beta_schedule
     )
 
     trainer = Trainer(
         diffusion,
-        args.dataset_root,
+        args.data_folder,
         accelerator,
-        train_batch_size=args.batch_size,
-        train_lr=8e-5,
-        train_num_steps=args.train_num_steps,
-        gradient_accumulate_every=2,
-        ema_decay=0.995,
-        amp=False,
-        calculate_fid=False
+        batch_size          = args.batch_size,
+        lr                  = args.lr,
+        train_num_steps     = args.n_epochs,
+        gradient_accumulate_every = 2,
+        ema_decay           = args.ema_decay,
+        amp                 = False,
+        calculate_fid       = False,
+        results_folder      = args.results_folder
     )
 
     trainer.train()
     
 if __name__ == '__main__':
+    print(args)
     main()

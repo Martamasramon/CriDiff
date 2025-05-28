@@ -7,7 +7,7 @@
 #$ -V
 
 #$ -wd /cluster/project7/ProsRegNet_CellCount/CriDiff/
-#$ -N Test_generative_model
+#$ -N Train_Diffusion
 
 date
 nvidia-smi
@@ -19,6 +19,7 @@ source CriDiff_env/bin/activate
 export PATH="CriDiff_env/bin:$PATH"
 
 cd generative_pretrain
-python3 test_generative_model.py
+
+python3 train_generator_accelerate.py --ema_decay 0.999 --lr 0.00005 --results_folder './results_ema' 
 
 date

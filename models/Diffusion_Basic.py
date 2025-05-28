@@ -36,8 +36,10 @@ class Diffusion_Basic(nn.Module):
         self.input_img_channels     = self.model.input_img_channels
         self.mask_channels          = self.model.mask_channels
         self.self_condition         = self.model.self_condition
-        self.image_size             = args.size
+        self.image_size             = image_size
         self.objective              = objective
+        
+        self.channels     = self.model.input_img_channels
 
         assert objective in {'pred_noise', 'pred_x0', 'pred_v'}, 'objective must be either pred_noise (predict noise) or pred_x0 (predict image start) or pred_v (predict v [v-parameterization as defined in appendix D of progressive distillation paper, used in imagen-video successfully])'
 
@@ -200,7 +202,8 @@ class Diffusion_Basic(nn.Module):
         imgs          = [img]
         x_start       = None
 
-        for t in tqdm(reversed(range(0, self.num_timesteps)), desc = 'sampling loop time step', total = self.num_timesteps):
+        # for t in tqdm(reversed(range(0, self.num_timesteps)), desc = 'sampling loop time step', total = self.num_timesteps):
+        for t in reversed(range(0, self.num_timesteps)):
             self_cond = x_start if self.self_condition else None
             img, x_start = self.p_sample(img, t, self_cond)
             imgs.append(img)
@@ -222,7 +225,8 @@ class Diffusion_Basic(nn.Module):
         imgs    = [img]
         x_start = None
 
-        for time, time_next in tqdm(time_pairs, desc = 'sampling loop time step'):
+        # for time, time_next in tqdm(time_pairs, desc = 'sampling loop time step'):
+        for time, time_next in time_pairs:
             time_cond = torch.full((batch,), time, device = device, dtype = torch.long)
             self_cond = x_start if self.self_condition else None
             pred_noise, x_start, *_ = self.model_predictions(img, time_cond, self_cond, clip_x_start = True, rederive_pred_noise = True)
@@ -266,7 +270,7 @@ class Diffusion_Basic(nn.Module):
                 extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise)
 
 
-    def p_losses(self, x_start, t, noise = None, offset_noise_strength = None):
+    def p_losses(self, x_start, t, noise = None, offset_noise_strength = None, label=None):
         b, c, h, w              = x_start.shape
         noise                   = default(noise, lambda: torch.randn_like(x_start))
         offset_noise_strength   = default(offset_noise_strength, self.offset_noise_strength)         # offset noise - https://www.crosslabs.org/blog/diffusion-with-offset-noise
@@ -299,6 +303,9 @@ class Diffusion_Basic(nn.Module):
         else:
             raise ValueError(f'unknown objective {self.objective}')
 
+        if label is not None:
+            target  = self.normalize(label)
+            
         loss = F.mse_loss(model_out, target, reduction = 'none')
         loss = reduce(loss, 'b ... -> b', 'mean')
 
@@ -306,10 +313,10 @@ class Diffusion_Basic(nn.Module):
         return loss.mean()
 
 
-    def forward(self, img, *args, **kwargs):
+    def forward(self, img, label=None, *args, **kwargs):
         b, c, h, w, device, img_size, = *img.shape, img.device, self.image_size
         assert h == img_size and w == img_size, f'height and width of image must be {img_size}'
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
 
         img = self.normalize(img)
-        return self.p_losses(img, t, *args, **kwargs)
+        return self.p_losses(img, t, label=label, *args, **kwargs)

@@ -1,45 +1,63 @@
 from PIL import Image
-from torchvision import transforms as T, utils
-from dataset     import Dataset
+from torchvision        import transforms as T, utils
+from torch.utils.data   import Dataset
+import pandas as pd
+import numpy  as np
 
-# dataset classes
-class Dataset(Dataset):
+class MyDataset(Dataset):
     def __init__(
         self,
-        folder,
+        img_path,
         image_size,
-        type = 'train', 
-        exts = ['jpg', 'jpeg', 'png', 'tiff'],
+        exts                    = ['jpg', 'jpeg', 'png', 'tiff'],
         augment_horizontal_flip = False,
-        convert_image_to = None
+        use_histo               = False, 
+        use_t2w                 = False, 
+        is_pretrain             = True, 
+        is_train                = True
     ):
         super().__init__()
-        self.folder     = folder
+        root   = 'pretrain' if is_pretrain else 'finetune'
+        suffix = 'train'    if is_train    else 'test'
+        self.img_path   = img_path
+        self.img_dict   = pd.read_csv(f'../../Dataset_preparation/{root}_{suffix}.csv')
         self.image_size = image_size
-        self.paths      = [p for ext in exts for p in Path(f'{folder}').glob(f'**/*.{ext}')]
+        self.use_histo  = use_histo
+        self.use_t2w    = use_t2w
         
-        if type=='train':
-            maybe_convert_fn = partial(convert_image_to_fn, convert_image_to) if exists(convert_image_to) else nn.Identity()
-
-            self.transform = T.Compose([
-                T.Lambda(maybe_convert_fn),
-                T.Resize(image_size),
-                T.RandomHorizontalFlip() if augment_horizontal_flip else nn.Identity(),
-                T.CenterCrop(image_size),
-                T.ToTensor(),
-            ])
-        else:
-            self.transform = T.Compose([
-                T.Resize(image_size),
-                T.CenterCrop(image_size),
-            ])
+        self.transform = T.Compose([
+            T.CenterCrop(image_size),
+            T.Resize(image_size//2),
+            T.Resize(image_size),
+            T.RandomHorizontalFlip() if augment_horizontal_flip else nn.Identity(),
+            T.ToTensor(),
+        ])
+        
+        self.label_transform = T.Compose([
+            T.CenterCrop(image_size),
+            T.RandomHorizontalFlip() if augment_horizontal_flip else nn.Identity(),
+            T.ToTensor(), 
+        ])
 
     def __len__(self):
-        return len(self.paths)
+        return len(self.img_dict)
 
-    def __getitem__(self, index):
-        path = self.paths[index]
-        img  = Image.open(path)
+    def __getitem__(self, idx):
+        item   = self.img_dict.iloc[idx]
+        img    = Image.open(self.img_path + item["SID"]).convert('L')
+        #### Add normalisation of image by a single value, don't allow ToTensor to do min-max!
+        sample = {}
+
+        if self.use_histo:
+            embed_histo = torch.load(item["Histo"],weights_only=True) # torch.load(map_location=torch.device("cpu")
+            sample['Histo'] = embed_histo
         
-        return self.transform(img), str(path.name)
+        if self.use_t2w:
+            embed_t2w = torch.load(item["T2W"],weights_only=True) # torch.load(map_location=torch.device("cpu")
+            sample['T2W'] = embed_t2w
+
+        sample['Image'] = self.transform(img)
+        sample['Label'] = self.label_transform(img)
+        
+        return sample
     

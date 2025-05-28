@@ -61,7 +61,7 @@ class UNet_Basic(nn.Module):
         self.detail_sup         = nn.ModuleList([])
         self.ups                = nn.ModuleList([])
 
-        self.num_resolutions = len(in_out_mask)
+        self.num_resolutions = len(self.in_out_mask)
 
         for ind, ((dim_in, dim_out), full_attn) in enumerate(zip(self.in_out_mask, self.full_self_attn)):
             is_last = ind >= (self.num_resolutions - 1)

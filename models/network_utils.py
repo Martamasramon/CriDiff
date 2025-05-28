@@ -33,7 +33,6 @@ def zero_module(module):
     return module
 
 def Upsample(dim, dim_out = None):
-    print('Using this one')
     return nn.Sequential(
         nn.Upsample(scale_factor = 2, mode = 'nearest'),
         nn.Conv2d(dim, default(dim_out, dim), 3, padding = 1)

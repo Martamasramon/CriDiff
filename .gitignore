@@ -2,3 +2,7 @@
 /CriDiff_env
 /Datasets
 *.o*
+*.pt
+/results
+/results_*
+*.png
