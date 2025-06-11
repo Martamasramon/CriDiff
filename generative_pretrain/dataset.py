@@ -16,8 +16,10 @@ class MyDataset(Dataset):
         is_train                = True
     ):
         super().__init__()
+        
         root   = 'pretrain' if is_pretrain else 'finetune'
         suffix = 'train'    if is_train    else 'test'
+
         self.img_path   = img_path
         self.img_dict   = pd.read_csv(f'../../Dataset_preparation/{root}_{suffix}.csv')
         self.image_size = image_size

@@ -41,8 +41,6 @@ class UNet_Basic(nn.Module):
         self.in_out_mask = list(zip(dims_mask[:-1], dims_mask[1:]))
         block_klass = partial(ResnetBlock, groups = 8)
 
-        self.full_self_attn: tuple = (False, False, False, True)
-
         if with_time_emb:
             time_dim = dim
             self.time_mlp = nn.Sequential(
@@ -64,7 +62,7 @@ class UNet_Basic(nn.Module):
 
         self.num_resolutions = len(self.in_out_mask)
 
-        for ind, ((dim_in, dim_out), full_attn) in enumerate(zip(self.in_out_mask, self.full_self_attn)):
+        for ind, (dim_in, dim_out) in enumerate(self.in_out_mask):
             is_last = ind >= (self.num_resolutions - 1)
 
             self.downs_label_noise.append(nn.ModuleList([
@@ -80,11 +78,8 @@ class UNet_Basic(nn.Module):
         self.mid_attn       = Residual(PreNorm(mid_dim, LinearCrossAttention(mid_dim)))
         self.mid_block2     = block_klass(mid_dim, mid_dim, time_emb_dim = time_dim)
 
-
-        for ind, ((dim_in, dim_out), full_attn) in enumerate(zip(reversed(self.in_out_mask), reversed(self.full_self_attn))):
-
+        for ind, (dim_in, dim_out) in enumerate(reversed(self.in_out_mask)):
             is_last = ind >= (self.num_resolutions - 1)
-            attn_klass = Attention if full_attn else LinearAttention
             
             self.ups.append(nn.ModuleList([
                 block_klass(dim_in*3, dim_in, time_emb_dim = time_dim) if ind < 3 else block_klass(dim_in*2, dim_in, time_emb_dim = time_dim),
@@ -113,13 +108,13 @@ class UNet_Basic(nn.Module):
         B,C,H,W, = input_x.shape
         device   = input_x.device
         x = input_x
+                
+        if cond is not None:
+            x = torch.cat((x, cond), dim=1)
         
         if self.self_condition:
             x_self_cond = default(x_self_cond, lambda: torch.zeros_like(input_x))
             x = torch.cat((x, x_self_cond), dim=1)
-            
-        if cond is not None:
-            x = torch.cat((x, cond), dim=1)
             
         if self.residual:
             orig_x = input_x
@@ -152,17 +147,3 @@ class UNet_Basic(nn.Module):
         x = self.final_res_block(x, t)
         return self.final_conv(x)
 
-
-if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
-    torch.cuda.set_device(1)
-    model = UNet_Basic(
-        dim=128,
-        dim_mults=(1, 2, 4, 8),
-        with_time_emb=True,
-        residual=False
-    ).cuda()
-    input_R = torch.randn(1,1,256,256).cuda()
-    label_noise_t = torch.randn(1,1,256,256).cuda()
-    time = torch.randn(2).cuda()
-    X=model(input_R, time, None)

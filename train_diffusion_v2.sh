@@ -20,6 +20,6 @@ export PATH="CriDiff_env/bin:$PATH"
 
 cd generative_pretrain
 
-python3 train_generator_accelerate.py --ema_decay 0.999 --lr 0.00005 --results_folder './results_ema' 
+python3 train_generator_accelerate.py --results_folder './results_dims' --dim_mults 1 2 4 8 16
 
 date

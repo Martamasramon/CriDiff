@@ -54,12 +54,12 @@ class Diffusion_Attn(Diffusion_Basic):
 
 
     @torch.no_grad()
-    def p_sample(self, c, x, t,x_self_cond=None, clip_denoised=True):
+    def p_sample(self, c, x, t,x_self_cond=None):
         b, *_, device = *x.shape, x.device
         batched_times = torch.full((x.shape[0],), t, device=x.device, dtype=torch.long)
         model_mean, _, model_log_variance, x_start = self.p_mean_variance(c=c, x=x, t=batched_times,
                                                                           x_self_cond=x_self_cond,
-                                                                          clip_denoised=clip_denoised)
+                                                                          clip_denoised=True)
         noise = torch.randn_like(x) if t > 0 else 0.  # no noise if t == 0
         pred_img = model_mean + (0.5 * model_log_variance).exp() * noise
         return pred_img, x_start
@@ -71,10 +71,11 @@ class Diffusion_Attn(Diffusion_Basic):
         img             = torch.randn(shape, device=device)
         x_start         = None
 
-        batched_times = torch.full((img.shape[0],), 10, device=img.device, dtype=torch.long)
-        model_out, input_side_out, body_pre, detail_pre = self.model(cond, img, batched_times, None)
+        # batched_times = torch.full((img.shape[0],), 10, device=img.device, dtype=torch.long)
+        # model_out, input_side_out, _, _ = self.model(cond, img, batched_times, None)
 
-        for t in tqdm(reversed(range(0, self.num_timesteps)), desc='sampling loop time step', total=self.num_timesteps):
+        # for t in tqdm(reversed(range(0, self.num_timesteps)), desc='sampling loop time step', total=self.num_timesteps):
+        for t in reversed(range(0, self.num_timesteps)):
             self_cond = x_start if self.self_condition else None
             img, x_start = self.p_sample(cond, img, t, self_cond)
 

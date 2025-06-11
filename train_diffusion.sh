@@ -20,6 +20,6 @@ export PATH="CriDiff_env/bin:$PATH"
 
 cd generative_pretrain
 
-python3 train_generator_accelerate.py
+python3 train_generator_accelerate.py --results_folder './results_batch' --lr 0.0002  --batch_size 32 
 
 date

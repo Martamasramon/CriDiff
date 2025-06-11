@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
+import torchvision.models  as models
 
 # Simple loss function (L_simple) (MSE Loss)
 # Inputs:
@@ -184,3 +185,41 @@ def comput_loss(side_out, target, type):
         sal_loss1 = structure_loss(side_out, target, type)
         return sal_loss1
 
+
+class VGGPerceptualLoss(torch.nn.Module):
+    def __init__(self, resize=True):
+        super(VGGPerceptualLoss, self).__init__()
+        self.device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')        
+        blocks = []
+        blocks.append(models.vgg16(weights='DEFAULT').features[:4].to(self.device).eval())
+        blocks.append(models.vgg16(weights='DEFAULT').features[4:9].to(self.device).eval())
+        blocks.append(models.vgg16(weights='DEFAULT').features[9:16].to(self.device).eval())
+        blocks.append(models.vgg16(weights='DEFAULT').features[16:23].to(self.device).eval())
+        for bl in blocks:
+            for p in bl:
+                p.requires_grad = False
+        
+        self.blocks = torch.nn.ModuleList(blocks)
+        self.transform = torch.nn.functional.interpolate
+        self.register_buffer('mean', torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
+        self.register_buffer('std', torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
+        self.resize = resize
+
+    def forward(self, x, y):
+        if x.shape[1] != 3:
+            x = x.repeat(1, 3, 1, 1).to(self.device)
+            y = y.repeat(1, 3, 1, 1).to(self.device)
+        x = (x - self.mean) / self.std
+        y = (y - self.mean) / self.std
+        if self.resize:
+            x = self.transform(x, mode='bilinear', size=(224, 224), align_corners=False)
+            y = self.transform(y, mode='bilinear', size=(224, 224), align_corners=False)
+
+        loss = torch.zeros(x.size(0), device=self.device)  # [B]
+
+        for block in self.blocks:
+            x = block(x)
+            y = block(y)
+            # Compute MSE per sample
+            loss += F.mse_loss(x, y, reduction='none').view(x.size(0), -1).mean(dim=1)
+        return loss  # shape:  [B]

@@ -15,7 +15,6 @@ from torch.optim import Adam
 from torchvision import transforms as T, utils
 
 from einops import rearrange, reduce
-
 from tqdm.auto import tqdm
 
 import sys
@@ -24,6 +23,7 @@ from network_utils   import *
 from network_modules import *
 
 from ema_pytorch import EMA
+
 
 class Trainer(object):
     def __init__(
@@ -147,31 +147,64 @@ class Trainer(object):
         if exists(self.accelerator.scaler) and exists(data['scaler']):
             self.accelerator.scaler.load_state_dict(data['scaler'])
 
+    def calc_loss(self, ):
+        total_loss, total_mse, total_percpt, total_ssim = 0.0, 0.0, 0.0, 0.0
+
+        for _ in range(self.gradient_accumulate_every):
+            data = next(self.dl)
+            data = {k: v.to(self.accelerator.device) for k, v in data.items()}
+
+            with self.accelerator.autocast():
+                loss, mse, perct, ssim = self.model(data['HighRes'], cond=data['LowRes'])
+                
+                total_loss   += loss.item()  / self.gradient_accumulate_every
+                total_mse    += mse.item()   / self.gradient_accumulate_every
+                total_percpt += perct.item() / self.gradient_accumulate_every
+                total_ssim   += ssim.item()  / self.gradient_accumulate_every
+
+            self.accelerator.backward(loss)
+            for name, param in self.model.named_parameters():
+                if param.grad is None:
+                    print(name)
+                    
+        return data, total_loss, total_mse, total_percpt, total_ssim
+                    
+    def sample_images(self, data):
+        with torch.no_grad():
+            milestone       = self.step // self.sample_every
+            batches         = num_to_groups(self.num_samples, self.batch_size)
+            sample_lowres   = data['LowRes'][:self.num_samples].to(self.accelerator.device)
+            
+            # all_images_list = list(map(lambda n: self.ema.ema_model.sample(batch_size=n, cond=sample_lowres), batches))
+            all_images_list = []
+            start = 0
+            total = sample_lowres.shape[0]
+
+            for n in batches:
+                end = min(start + n, total)
+                cond_slice = sample_lowres[start:end]
+                
+                if cond_slice.shape[0] == 0:
+                    break  # no more valid conditioning inputs
+
+                images = self.ema.ema_model.sample(batch_size=cond_slice.shape[0], cond=cond_slice)
+                all_images_list.append(images)
+                start = end
+        
+        all_images = torch.cat(all_images_list, dim = 0)
+        
+        utils.save_image(all_images, str(self.results_folder / f'sample-{milestone}.png'), nrow = int(math.sqrt(self.num_samples)))
+
+                
     def train(self):
         accelerator = self.accelerator
-        device = accelerator.device
 
         with tqdm(initial = self.step, total = self.train_num_steps, disable = not accelerator.is_main_process) as pbar:
 
             while self.step < self.train_num_steps:
-                total_loss = 0.
-
-                for _ in range(self.gradient_accumulate_every):
-                    data = next(self.dl)
-                    data = {k: v.to(device) for k, v in data.items()}
-
-                    with self.accelerator.autocast():
-                        loss = self.model(data['HighRes'], cond=data['LowRes'])
-                        loss = loss / self.gradient_accumulate_every
-                        total_loss += loss.item()
-
-                    self.accelerator.backward(loss)
-                    for name, param in self.model.named_parameters():
-                        if param.grad is None:
-                            print(name)
-
-                # pbar.set_description(f'loss: {total_loss:.4f}')
-
+                # Calculate loss
+                data, total_loss, total_mse, total_percpt, total_ssim = self.calc_loss()
+                
                 accelerator.wait_for_everyone()
                 accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
 
@@ -184,22 +217,14 @@ class Trainer(object):
                 if accelerator.is_main_process:
                     self.ema.update()
 
+                    # Sample images
                     if self.step != 0 and divisible_by(self.step, self.sample_every):
                         self.ema.ema_model.eval()
-
-                        with torch.no_grad():
-                            milestone = self.step // self.sample_every
-                            batches = num_to_groups(self.num_samples, self.batch_size)
-                            sample_lowres = data['LowRes'][:self.num_samples].to(device)
-                            all_images_list = list(map(lambda n: self.ema.ema_model.sample(batch_size=n, cond=sample_lowres), batches))
-
-                        all_images = torch.cat(all_images_list, dim = 0)
-
-                        utils.save_image(all_images, str(self.results_folder / f'sample-{milestone}.png'), nrow = int(math.sqrt(self.num_samples)))
-
+                        self.sample_images(data)
+                        
+                    # Save model 
                     if self.step != 0 and divisible_by(self.step, self.save_every):
                         milestone = self.step // self.save_every
-                        # whether to calculate fid
                         if self.calculate_fid:
                             fid_score = self.fid_scorer.fid_score()
                             accelerator.print(f'fid_score: {fid_score}')
@@ -210,9 +235,10 @@ class Trainer(object):
                             self.save("latest")
                         else:
                             self.save(milestone)
-
+                
+                # Update pbar
                 if self.step % 100 == 0:
+                    pbar.set_description(f"loss: {total_loss:.4f} (MSE: {total_mse:.4f},  perct: {total_percpt:.4f}, SSIM: {total_ssim:.4f},)")
                     pbar.update(100)
-                    pbar.set_description(f"loss: {total_loss:.4f}")
 
         accelerator.print('training complete')

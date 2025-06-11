@@ -1,3 +1,4 @@
+import lpips
 import torch
 import torch.nn.functional as F
 from torch          import nn
@@ -7,6 +8,8 @@ from tqdm.auto      import tqdm
 from random         import random
 from functools      import partial
 from collections    import namedtuple
+from piq            import ssim
+from loss           import VGGPerceptualLoss
 
 from network_utils   import *
 from network_modules import *
@@ -28,7 +31,8 @@ class Diffusion_Basic(nn.Module):
         auto_normalize          = True,
         offset_noise_strength   = 0.,    # https://www.crosslabs.org/blog/diffusion-with-offset-noise
         min_snr_loss_weight     = False, # https://arxiv.org/abs/2303.09556
-        min_snr_gamma           = 5
+        min_snr_gamma           = 5,
+        perct_λ                 = 0.01
     ):
         super().__init__()
 
@@ -111,7 +115,9 @@ class Diffusion_Basic(nn.Module):
         # auto-normalization of data [0, 1] -> [-1, 1] - can turn off by setting it to be False
         self.normalize      = normalize_to_neg_one_to_one if auto_normalize else identity
         self.unnormalize    = unnormalize_to_zero_to_one  if auto_normalize else identity
-
+        
+        self.perct_loss     = VGGPerceptualLoss()
+        self.perct_λ        = perct_λ
 
     @property
     def device(self):
@@ -208,13 +214,13 @@ class Diffusion_Basic(nn.Module):
             img, x_start = self.p_sample(img, t, x_self_cond=self_cond, cond=cond)
             imgs.append(img)
 
-        ret = img if not return_all_timesteps else torch.stack(imgs, dim = 1)
-        ret = self.unnormalize(ret)
-        return ret
+        img = img if not return_all_timesteps else torch.stack(imgs, dim = 1)
+        img = self.unnormalize(img)
+        return img
 
 
     @torch.no_grad()
-    def ddim_sample(self, shape, return_all_timesteps = False):
+    def ddim_sample(self, shape, return_all_timesteps = False, cond=None):
         batch, device, total_timesteps, sampling_timesteps, eta, objective = shape[0], self.device, self.num_timesteps, self.sampling_timesteps, self.ddim_sampling_eta, self.objective
 
         times = torch.linspace(-1, total_timesteps - 1, steps = sampling_timesteps + 1)   # [-1, 0, 1, 2, ..., T-1] when sampling_timesteps == total_timesteps
@@ -229,7 +235,7 @@ class Diffusion_Basic(nn.Module):
         for time, time_next in time_pairs:
             time_cond = torch.full((batch,), time, device = device, dtype = torch.long)
             self_cond = x_start if self.self_condition else None
-            pred_noise, x_start, *_ = self.model_predictions(img, time_cond, self_cond, clip_x_start = True, rederive_pred_noise = True)
+            pred_noise, x_start, *_ = self.model_predictions(img, time_cond, self_cond, clip_x_start = True, rederive_pred_noise = True, cond=cond)
 
             if time_next < 0:
                 img = x_start
@@ -302,11 +308,21 @@ class Diffusion_Basic(nn.Module):
         else:
             raise ValueError(f'unknown objective {self.objective}')
             
-        loss = F.mse_loss(model_out, target, reduction = 'none')
-        loss = reduce(loss, 'b ... -> b', 'mean')
-
+        mse_loss = F.mse_loss(model_out, target, reduction = 'none')
+        mse_loss = reduce(mse_loss, 'b ... -> b', 'mean')
+        
+        perct_loss = self.perct_loss(model_out.clamp(0.0, 1.0), target.clamp(0.0, 1.0))
+        # print("VGG perceptual loss (batch):", perct_loss)
+        # perct_loss = perct_loss.view(perct_loss.shape[0])
+        
+        with torch.no_grad():
+            ssim_val   = ssim(model_out.clamp(0.0, 1.0), target.clamp(0.0, 1.0), data_range=1.0)
+        
+        loss = mse_loss + self.perct_λ * perct_loss
         loss = loss * extract(self.loss_weight, t, loss.shape)
-        return loss.mean()
+
+        return loss.mean(), mse_loss.mean(), perct_loss.mean(), ssim_val.mean()
+        # return mse_loss.mean().item(), ssim_val.mean().item()
 
 
     def forward(self, img, cond=None, *args, **kwargs):
