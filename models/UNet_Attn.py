@@ -25,13 +25,25 @@ class UNet_Attn(UNet_Basic):
         self.downs_label_noise  = nn.ModuleList([])
         self.ups                = nn.ModuleList([])
         
+        # Figure out size of context vectors for cross attention
+        t2w_channels   = [128, 256, 512, 512]
+        histo_channel  = 768
+        context_channels = []
+        for i in range(len(self.in_out_mask)):
+            channels = 0
+            if self.use_T2W:
+                channels += t2w_channels[i]
+            if self.use_histo:
+                channels += histo_channel
+            context_channels.append(channels)
+
         for ind, (dim_in, dim_out) in enumerate(self.in_out_mask):
             is_last = ind >= (self.num_resolutions - 1)
             
             self.downs_label_noise.append(nn.ModuleList([
-                block_klass(dim_in, dim_in, time_emb_dim = time_dim),
-                block_klass(dim_in, dim_in, time_emb_dim = time_dim),
-                Residual(PreNorm(dim_in, LinearCrossAttention(dim_in, context_in=self.side_unit_channel))), ## <---- not in basic
+                block_klass(dim_in, dim_in, time_emb_dim = self.time_dim),
+                block_klass(dim_in, dim_in, time_emb_dim = self.time_dim),
+                Residual(PreNorm(dim_in, LinearCrossAttention(dim_in, context_in=context_channels[i]))), ## <---- not in basic
                 Downsample(dim_in, dim_out) if not is_last else nn.Conv2d(dim_in, dim_out, 3, padding = 1)
             ]))
 
@@ -39,14 +51,19 @@ class UNet_Attn(UNet_Basic):
             is_last = ind >= (self.num_resolutions - 1)
 
             self.ups.append(nn.ModuleList([
-                block_klass(dim_in*3, dim_in, time_emb_dim = time_dim) if ind < 3 else block_klass(dim_in*2, dim_in, time_emb_dim = time_dim),
-                block_klass(dim_in*2, dim_in, time_emb_dim = time_dim),
-                Residual(PreNorm(dim_in, LinearCrossAttention(dim_in, context_in=self.side_unit_channel))), ## <---- not in basic
+                block_klass(dim_in*3, dim_in, time_emb_dim = self.time_dim) if ind < 3 else block_klass(dim_in*2, dim_in, time_emb_dim = self.time_dim),
+                block_klass(dim_in*2, dim_in, time_emb_dim = self.time_dim),
+                Residual(PreNorm(dim_in, LinearCrossAttention(dim_in, context_in=context_channels[-(i+1)]))), ## <---- not in basic
                 Upsample(dim_in, dim_in) if not is_last else  nn.Conv2d(dim_in, dim_in, 3, padding = 1)
             ]))
 
 
-    def forward(self, input_x, time, x_self_cond=None, cond=None, t2w=None, histo=None):     
+    def forward(self, input_x, time, x_self_cond=None, cond=None, t2w=None, histo=None):   
+        assert not (self.use_T2W   and t2w   is None), "T2W embedding required but not provided"
+        assert not (self.use_histo and histo is None), "Histology embedding required but not provided"
+        
+        ### Make sure histo is size (B, 768, 1, 1). If (B,1) -> histo.view(B, 768, 1, 1)
+          
         B,C,H,W, = input_x.shape
         device   = input_x.device
         x = input_x
@@ -58,25 +75,23 @@ class UNet_Attn(UNet_Basic):
             x_self_cond = default(x_self_cond, lambda: torch.zeros_like(input_x))
             x = torch.cat((x_self_cond, x), dim=1)
             
-        if self.residual:
-            orig_x = input_x
-
         x = self.init_conv(x)
         t = self.time_mlp(time) if exists(self.time_mlp) else None
         
-        
         label_noise_side = []
-        for i, convnext, convnext2, LinearCrossAttention, downsample in enumerate(self.downs_label_noise):
+        for i, (convnext, convnext2, cross_attention, downsample) in enumerate(self.downs_label_noise):
             x = convnext(x, t)
             label_noise_side.append(x)
             x = convnext2(x, t)
             
-            if self.use_T2W:
-                x = LinearCrossAttention(x, t2w[i])    
-            if self.use_histo:
-                histo_level = F.interpolate(histo, size=x.shape[2:], mode="bilinear")
-                x = LinearCrossAttention(x, histo_level)    
-            
+            if self.use_T2W and self.use_histo:
+                context     = torch.cat((t2w[i], F.interpolate(histo, size=x.shape[2:], mode="bilinear")), dim=1)
+            elif self.use_T2W:
+                context     = t2w[i]
+            elif self.use_histo:
+                context     = F.interpolate(histo, size=x.shape[2:], mode="bilinear")
+    
+            x = cross_attention(x, context)
             label_noise_side.append(x)
             x = downsample(x)
 
@@ -84,23 +99,21 @@ class UNet_Attn(UNet_Basic):
         x = self.mid_attn(x)
         x = self.mid_block2(x, t)
 
-        for i, convnext, convnext2, LinearCrossAttention, upsample in enumerate(self.ups):
+        for i, (convnext, convnext2, cross_attention, upsample) in enumerate(self.ups):
             x = torch.cat((x, label_noise_side.pop()), dim=1)
             x = convnext(x, t)
-            x = x + condition
             x = torch.cat((x, label_noise_side.pop()), dim=1)
             x = convnext2(x, t)
             
-            if self.use_T2W:
-                x = LinearCrossAttention(x, t2w[len(t2w)-i])    
-            if self.use_histo:
-                histo_level = F.interpolate(histo, size=x.shape[2:], mode="bilinear")
-                x = LinearCrossAttention(x, histo_level)    
-                
+            if self.use_T2W and self.use_histo:
+                context     = torch.cat((t2w[-(i+1)], F.interpolate(histo, size=x.shape[2:], mode="bilinear")), dim=1)
+            elif self.use_T2W:
+                context     = t2w[-(i+1)]
+            elif self.use_histo:
+                context     = F.interpolate(histo, size=x.shape[2:], mode="bilinear") 
+            
+            x = cross_attention(x, context)
             x = upsample(x)
-
-        if self.residual:
-            return self.final_conv(x)
 
         x = self.final_res_block(x, t)
         return self.final_conv(x) 

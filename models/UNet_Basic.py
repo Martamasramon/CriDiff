@@ -14,7 +14,6 @@ class UNet_Basic(nn.Module):
         dim_mults       = (1, 2, 4, 8),
         self_condition  = True,
         with_time_emb   = True,
-        residual        = False
     ):
         super().__init__()
 
@@ -23,11 +22,9 @@ class UNet_Basic(nn.Module):
         self.dim_mults          = dim_mults
         self.self_condition     = self_condition
         self.with_time_emb      = with_time_emb
-        self.residual           = residual 
         
         self.input_img_channels = 1
         self.mask_channels      = 1
-        self.side_unit_channel  = 64
 
         cond_channels       = 1  # conditioning image
         self_cond_channels  = 1 if self_condition else 0
@@ -35,14 +32,13 @@ class UNet_Basic(nn.Module):
         self.init_conv      = nn.Conv2d(input_channels, dim, 7, padding = 3)
 
         self.channels = self.input_img_channels
-        self.residual = residual
         dims_mask     = [dim, *map(lambda m: dim * m, dim_mults)]
 
         self.in_out_mask = list(zip(dims_mask[:-1], dims_mask[1:]))
         block_klass = partial(ResnetBlock, groups = 8)
 
         if with_time_emb:
-            time_dim = dim
+            self.time_dim = dim
             self.time_mlp = nn.Sequential(
                 SinusoidalPosEmb(dim),
                 nn.Linear(dim, dim * 4),
@@ -50,7 +46,7 @@ class UNet_Basic(nn.Module):
                 nn.Linear(dim * 4, dim)
             )
         else:
-            time_dim = None
+            self.time_dim = None
             self.time_mlp = None
 
         self.downs_input        = nn.ModuleList([])
@@ -66,29 +62,29 @@ class UNet_Basic(nn.Module):
             is_last = ind >= (self.num_resolutions - 1)
 
             self.downs_label_noise.append(nn.ModuleList([
-                block_klass(dim_in, dim_in, time_emb_dim = time_dim),
-                block_klass(dim_in, dim_in, time_emb_dim = time_dim),
+                block_klass(dim_in, dim_in, time_emb_dim = self.time_dim),
+                block_klass(dim_in, dim_in, time_emb_dim = self.time_dim),
 
                 Downsample(dim_in, dim_out) if not is_last else nn.Conv2d(dim_in, dim_out, 3, padding = 1)
             ]))
 
         mid_dim = dims_mask[-1]
         
-        self.mid_block1     = block_klass(mid_dim, mid_dim, time_emb_dim = time_dim)
+        self.mid_block1     = block_klass(mid_dim, mid_dim, time_emb_dim = self.time_dim)
         self.mid_attn       = Residual(PreNorm(mid_dim, LinearCrossAttention(mid_dim)))
-        self.mid_block2     = block_klass(mid_dim, mid_dim, time_emb_dim = time_dim)
+        self.mid_block2     = block_klass(mid_dim, mid_dim, time_emb_dim = self.time_dim)
 
         for ind, (dim_in, dim_out) in enumerate(reversed(self.in_out_mask)):
             is_last = ind >= (self.num_resolutions - 1)
             
             self.ups.append(nn.ModuleList([
-                block_klass(dim_in*3, dim_in, time_emb_dim = time_dim) if ind < 3 else block_klass(dim_in*2, dim_in, time_emb_dim = time_dim),
-                block_klass(dim_in*2, dim_in, time_emb_dim = time_dim),
+                block_klass(dim_in*3, dim_in, time_emb_dim = self.time_dim) if ind < 3 else block_klass(dim_in*2, dim_in, time_emb_dim = self.time_dim),
+                block_klass(dim_in*2, dim_in, time_emb_dim = self.time_dim),
                 
                 Upsample(dim_in, dim_in) if not is_last else  nn.Conv2d(dim_in, dim_in, 3, padding = 1)
             ]))
 
-        self.final_res_block = block_klass(dim, dim, time_emb_dim = time_dim)
+        self.final_res_block = block_klass(dim, dim, time_emb_dim = self.time_dim)
         self.final_conv      = nn.Sequential(
             nn.Conv2d(dim, self.mask_channels, 1),
         )
@@ -115,10 +111,7 @@ class UNet_Basic(nn.Module):
         if self.self_condition:
             x_self_cond = default(x_self_cond, lambda: torch.zeros_like(input_x))
             x = torch.cat((x, x_self_cond), dim=1)
-            
-        if self.residual:
-            orig_x = input_x
-
+        
         x = self.init_conv(x)
         t = self.time_mlp(time) if exists(self.time_mlp) else None
 
@@ -140,9 +133,6 @@ class UNet_Basic(nn.Module):
             x = torch.cat((x, label_noise_side.pop()), dim=1)
             x = convnext2(x, t)
             x = upsample(x)
-
-        if self.residual:
-            return self.final_conv(x)
 
         x = self.final_res_block(x, t)
         return self.final_conv(x)
