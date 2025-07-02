@@ -8,7 +8,6 @@ import copy
 import os
 from network_utils   import *
 from network_modules import *
-from BoundaryCoreConditioner import ConditionExtractor
 from functools import partial
 
 from UNet_Basic import UNet_Basic
@@ -26,7 +25,7 @@ class UNet_Attn(UNet_Basic):
         self.ups                = nn.ModuleList([])
         
         # Figure out size of context vectors for cross attention
-        t2w_channels   = [128, 256, 512, 512]
+        t2w_channels   = [64, 128, 256, 512]
         histo_channel  = 768
         context_channels = []
         for i in range(len(self.in_out_mask)):
@@ -41,9 +40,9 @@ class UNet_Attn(UNet_Basic):
             is_last = ind >= (self.num_resolutions - 1)
             
             self.downs_label_noise.append(nn.ModuleList([
-                block_klass(dim_in, dim_in, time_emb_dim = self.time_dim),
-                block_klass(dim_in, dim_in, time_emb_dim = self.time_dim),
-                Residual(PreNorm(dim_in, LinearCrossAttention(dim_in, context_in=context_channels[i]))), ## <---- not in basic
+                self.block_klass(dim_in, dim_in, time_emb_dim = self.time_dim),
+                self.block_klass(dim_in, dim_in, time_emb_dim = self.time_dim),
+                Residual(PreNorm(dim_in, LinearCrossAttention(dim_in, context_in=context_channels[ind]))), ## <---- not in basic
                 Downsample(dim_in, dim_out) if not is_last else nn.Conv2d(dim_in, dim_out, 3, padding = 1)
             ]))
 
@@ -51,14 +50,14 @@ class UNet_Attn(UNet_Basic):
             is_last = ind >= (self.num_resolutions - 1)
 
             self.ups.append(nn.ModuleList([
-                block_klass(dim_in*3, dim_in, time_emb_dim = self.time_dim) if ind < 3 else block_klass(dim_in*2, dim_in, time_emb_dim = self.time_dim),
-                block_klass(dim_in*2, dim_in, time_emb_dim = self.time_dim),
-                Residual(PreNorm(dim_in, LinearCrossAttention(dim_in, context_in=context_channels[-(i+1)]))), ## <---- not in basic
+                self.block_klass(dim_in*3, dim_in, time_emb_dim = self.time_dim) if ind < 3 else self.block_klass(dim_in*2, dim_in, time_emb_dim = self.time_dim),
+                self.block_klass(dim_in*2, dim_in, time_emb_dim = self.time_dim),
+                Residual(PreNorm(dim_in, LinearCrossAttention(dim_in, context_in=context_channels[::-1][ind]))), ## <---- not in basic
                 Upsample(dim_in, dim_in) if not is_last else  nn.Conv2d(dim_in, dim_in, 3, padding = 1)
             ]))
 
 
-    def forward(self, input_x, time, x_self_cond=None, cond=None, t2w=None, histo=None):   
+    def forward(self, input_x, low_res, time, t2w=None, histo=None, x_self_cond=None):   
         assert not (self.use_T2W   and t2w   is None), "T2W embedding required but not provided"
         assert not (self.use_histo and histo is None), "Histology embedding required but not provided"
         
@@ -66,10 +65,9 @@ class UNet_Attn(UNet_Basic):
           
         B,C,H,W, = input_x.shape
         device   = input_x.device
-        x = input_x
         
-        if cond is not None:
-            x = torch.cat((x, cond), dim=1)
+        # Concatenate input & lowres image
+        x = torch.cat((input_x, low_res), dim=1)
         
         if self.self_condition:
             x_self_cond = default(x_self_cond, lambda: torch.zeros_like(input_x))

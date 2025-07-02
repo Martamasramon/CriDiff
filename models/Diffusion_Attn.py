@@ -4,14 +4,15 @@ from torch          import nn
 from random         import random
 from functools      import partial
 from collections    import namedtuple
-from einops         import rearrange
+from einops         import rearrange, reduce
 from tqdm.auto      import tqdm
+from piq            import ssim
 import numpy        as np
 
 from network_utils   import *
 from Diffusion_Basic import Diffusion_Basic
 
-ModelPrediction = namedtuple('ModelPrediction', ['pred_noise', 'pred_x_start'])
+ModelPrediction = namedtuple('ModelPrediction', ['pred_noise', 'x_start'])
 
 class Diffusion_Attn(Diffusion_Basic):
     
@@ -47,7 +48,7 @@ class Diffusion_Attn(Diffusion_Basic):
 
     def p_mean_variance(self, x, low_res, t, t2w=None, histo=None, x_self_cond = None, clip_denoised = True):
         preds = self.model_predictions(x, low_res, t, t2w, histo, x_self_cond)
-        x_start = preds.pred_x_start
+        x_start = preds.x_start
 
         if clip_denoised:
             x_start.clamp_(-1., 1.)
@@ -102,6 +103,7 @@ class Diffusion_Attn(Diffusion_Basic):
             time_cond = torch.full((batch,), time, device = device, dtype = torch.long)
             self_cond = x_start if self.self_condition else None
             preds = self.model_predictions(img, low_res, time_cond, t2w, histo, self_cond, clip_x_start = True, rederive_pred_noise = True)
+            x_start = preds.x_start
             
             if time_next < 0:
                 img = preds.x_start
@@ -148,10 +150,11 @@ class Diffusion_Attn(Diffusion_Basic):
 
         # self-conditioning. 50% of the time, predict x_start from current set of times and condition with unet
         #                   slows down training by 25%, but seems to lower FID significantly
+        
         x_self_cond = None
         if self.self_condition and random() < 0.5:
             with torch.no_grad():
-                x_self_cond = self.model_predictions(x,low_res, t, t2w, histo).pred_x_start  
+                x_self_cond = self.model_predictions(x,low_res, t, t2w, histo).x_start  
                 x_self_cond.detach_()
 
         # predict and take gradient step

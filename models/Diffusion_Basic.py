@@ -14,7 +14,7 @@ from loss           import VGGPerceptualLoss
 from network_utils   import *
 from network_modules import *
 
-ModelPrediction =  namedtuple('ModelPrediction', ['pred_noise', 'pred_x_start'])
+ModelPrediction =  namedtuple('ModelPrediction', ['pred_noise', 'x_start'])
 
 class Diffusion_Basic(nn.Module):
     def __init__(
@@ -154,7 +154,7 @@ class Diffusion_Basic(nn.Module):
 
 
     def model_predictions(self, x, low_res, t, x_self_cond = None, clip_x_start = False, rederive_pred_noise = False):
-        model_output = self.model.forward(x,low_res, t, x_self_cond)
+        model_output = self.model.forward(x, low_res, t, x_self_cond)
         maybe_clip = partial(torch.clamp, min = -1., max = 1.) if clip_x_start else identity
 
         if self.objective == 'pred_noise':
@@ -181,7 +181,7 @@ class Diffusion_Basic(nn.Module):
 
     def p_mean_variance(self, x, low_res, t, x_self_cond = None, clip_denoised = True):
         preds = self.model_predictions(x, low_res, t, x_self_cond)
-        x_start = preds.pred_x_start
+        x_start = preds.x_start
 
         if clip_denoised:
             x_start.clamp_(-1., 1.)
@@ -235,7 +235,8 @@ class Diffusion_Basic(nn.Module):
         for time, time_next in time_pairs:
             time_cond = torch.full((batch,), time, device = device, dtype = torch.long)
             self_cond = x_start if self.self_condition else None
-            preds = self.model_predictions(img, low_res, time_cond, self_cond, clip_x_start = True, rederive_pred_noise = True)
+            preds   = self.model_predictions(img, low_res, time_cond, self_cond, clip_x_start = True, rederive_pred_noise = True)
+            x_start = preds.x_start
             
             if time_next < 0:
                 img = preds.x_start
@@ -292,7 +293,7 @@ class Diffusion_Basic(nn.Module):
         x_self_cond = None
         if self.self_condition and random() < 0.5:
             with torch.no_grad():
-                x_self_cond = self.model_predictions(x,low_res, t).pred_x_start  
+                x_self_cond = self.model_predictions(x,low_res, t).x_start  
                 x_self_cond.detach_()
 
         # predict and take gradient step
@@ -311,8 +312,8 @@ class Diffusion_Basic(nn.Module):
         mse_loss = F.mse_loss(model_out, target, reduction = 'none')
         mse_loss = reduce(mse_loss, 'b ... -> b', 'mean')
         
-        x_out       = self.unnormalize(model_out)  # <--- NEW
-        x_target    = self.unnormalize(target)     # <--- NEW
+        x_out       = self.unnormalize(model_out)  
+        x_target    = self.unnormalize(target)     
         perct_loss  = self.perct_loss(x_out.clamp(0.0, 1.0), x_target.clamp(0.0, 1.0))
         
         with torch.no_grad():
@@ -322,7 +323,6 @@ class Diffusion_Basic(nn.Module):
         loss = loss * extract(self.loss_weight, t, loss.shape)
 
         return loss.mean(), mse_loss.mean(), perct_loss.mean(), ssim_val.mean()
-        # return mse_loss.mean().item(), ssim_val.mean().item()
 
 
     def forward(self, img, low_res, *args, **kwargs):

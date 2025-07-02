@@ -35,7 +35,7 @@ class UNet_Basic(nn.Module):
         dims_mask     = [dim, *map(lambda m: dim * m, dim_mults)]
 
         self.in_out_mask = list(zip(dims_mask[:-1], dims_mask[1:]))
-        block_klass = partial(ResnetBlock, groups = 8)
+        self.block_klass = partial(ResnetBlock, groups = 8)
 
         if with_time_emb:
             self.time_dim = dim
@@ -62,29 +62,29 @@ class UNet_Basic(nn.Module):
             is_last = ind >= (self.num_resolutions - 1)
 
             self.downs_label_noise.append(nn.ModuleList([
-                block_klass(dim_in, dim_in, time_emb_dim = self.time_dim),
-                block_klass(dim_in, dim_in, time_emb_dim = self.time_dim),
+                self.block_klass(dim_in, dim_in, time_emb_dim = self.time_dim),
+                self.block_klass(dim_in, dim_in, time_emb_dim = self.time_dim),
 
                 Downsample(dim_in, dim_out) if not is_last else nn.Conv2d(dim_in, dim_out, 3, padding = 1)
             ]))
 
         mid_dim = dims_mask[-1]
         
-        self.mid_block1     = block_klass(mid_dim, mid_dim, time_emb_dim = self.time_dim)
+        self.mid_block1     = self.block_klass(mid_dim, mid_dim, time_emb_dim = self.time_dim)
         self.mid_attn       = Residual(PreNorm(mid_dim, LinearCrossAttention(mid_dim)))
-        self.mid_block2     = block_klass(mid_dim, mid_dim, time_emb_dim = self.time_dim)
+        self.mid_block2     = self.block_klass(mid_dim, mid_dim, time_emb_dim = self.time_dim)
 
         for ind, (dim_in, dim_out) in enumerate(reversed(self.in_out_mask)):
             is_last = ind >= (self.num_resolutions - 1)
             
             self.ups.append(nn.ModuleList([
-                block_klass(dim_in*3, dim_in, time_emb_dim = self.time_dim) if ind < 3 else block_klass(dim_in*2, dim_in, time_emb_dim = self.time_dim),
-                block_klass(dim_in*2, dim_in, time_emb_dim = self.time_dim),
+                self.block_klass(dim_in*3, dim_in, time_emb_dim = self.time_dim) if ind < 3 else self.block_klass(dim_in*2, dim_in, time_emb_dim = self.time_dim),
+                self.block_klass(dim_in*2, dim_in, time_emb_dim = self.time_dim),
                 
                 Upsample(dim_in, dim_in) if not is_last else  nn.Conv2d(dim_in, dim_in, 3, padding = 1)
             ]))
 
-        self.final_res_block = block_klass(dim, dim, time_emb_dim = self.time_dim)
+        self.final_res_block = self.block_klass(dim, dim, time_emb_dim = self.time_dim)
         self.final_conv      = nn.Sequential(
             nn.Conv2d(dim, self.mask_channels, 1),
         )
@@ -100,13 +100,10 @@ class UNet_Basic(nn.Module):
         return GroupNorm32(32, channels)
 
 
-    def forward(self, input_x, time, x_self_cond=None, cond=None):     
+    def forward(self, input_x, low_res, time, x_self_cond=None):     
         B,C,H,W, = input_x.shape
         device   = input_x.device
-        x = input_x
-                
-        if cond is not None:
-            x = torch.cat((x, cond), dim=1)
+        x = torch.cat((input_x, low_res), dim=1)
         
         if self.self_condition:
             x_self_cond = default(x_self_cond, lambda: torch.zeros_like(input_x))
