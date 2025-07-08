@@ -9,22 +9,18 @@ from torch.utils.data import DataLoader
 import sys
 sys.path.append('../models')
 from network_utils   import *
-from test_functions  import *
 from Diffusion_Basic import Diffusion_Basic
 from UNet_Basic      import UNet_Basic
 
 import sys
 sys.path.append('../')
 from dataset         import MyDataset
+from test_functions  import *
+
+folder = '/cluster/project7/backup_masramon/IQT/'
 
 os.environ['CUDA_VISIBLE_DEVICES']='0,1'
 parser = argparse.ArgumentParser("Diffusion")
-# General setup
-parser.set_defaults(use_histo=False)
-parser.set_defaults(use_T2W  =False)
-parser.add_argument('--use_histo',          action='store_true')
-parser.add_argument('--use_T2W',            action='store_true')
-parser.add_argument('--t2w_checkpoint',     type=int,  default = '/cluster/project7/ProsRegNet_CellCount/UNet/checkpoints/checkpoints_0306_1947_stage_1_best.pth')
 # UNet
 parser.add_argument('--img_size',           type=int,  default=64)
 parser.add_argument('--self_condition',     type=bool, default=True)
@@ -36,19 +32,15 @@ parser.add_argument('--beta_schedule',      type=str,  default='linear')
 # Testing
 parser.add_argument('--checkpoint',         type=str,  default='./results/model-8.pt')
 parser.add_argument('--save_name',          type=str,  default='test_image')
-parser.add_argument('--data_folder',        type=str,  default='/cluster/project7/backup_masramon/IQT/PICAI/')
+parser.add_argument('--data_folder',        type=str,  default='HistoMRI')
 parser.add_argument('--batch_size',         type=int,  default=5)
-parser.add_argument('--is_pretrain',        action='store_true')
-parser.add_argument('--finetune',           dest='is_pretrain', action='store_false')
-parser.set_defaults(is_pretrain=True)
+parser.add_argument('--finetune',           action='store_true')
+parser.set_defaults(finetune = False)
 args, unparsed = parser.parse_known_args()
  
 def main():
-    # accelerator = Accelerator(split_batches=True, mixed_precision='no')
-    # device      = accelerator.device
     assert torch.cuda.is_available(), "CUDA not available!"
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
 
     model = UNet_Basic(
         dim             = args.img_size,
@@ -75,19 +67,26 @@ def main():
     diffusion.to(device)
     
     print('Loading data...')
-    dataset     = MyDataset(args.data_folder, args.img_size, is_train=False, is_pretrain=args.is_pretrain) 
+    dataset     = MyDataset(
+        folder + args.data_folder, 
+        args.img_size, 
+        is_train        = False, 
+        is_finetune     = args.finetune
+    ) 
     dataloader  = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
 
-    # print('Evaluating...')
-    # evaluate_results(diffusion, dataloader, device)
+    print('Evaluating...')
+    evaluate_results(diffusion, dataloader, device, args.batch_size)
     
     print('Visualising...')
     visualize_batch(diffusion, dataloader, args.batch_size, device, output_name=args.save_name)
     
-    
 
     
-    
-    
 if __name__ == '__main__':
+    print('Parameters:')
+    for key, value in vars(args).items():
+        print(f'- {key}: {value}')
+    print('')
+    
     main()

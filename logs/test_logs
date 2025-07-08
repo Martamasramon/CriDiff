@@ -1,0 +1,80 @@
+python3 test.py --checkpoint './pretrain/model-8.pt' --save_name 'pretrain' --finetune 
+model-best.pt' --save_name 'finetune' --finetune 
+python3 test.py --checkpoint './finetune_surgical/model-best.pt' --save_name 'finetune_surgical' --finetune 
+
+Parameters:
+- use_histo: False
+- use_T2W: False
+- t2w_checkpoint: /cluster/project7/ProsRegNet_CellCount/UNet/checkpoints/checkpoints_0306_1947_stage_1_best.pth
+- img_size: 64
+- self_condition: True
+- dim_mults: [1, 2, 4, 8]
+- timesteps: 1000
+- sampling_timesteps: 150
+- beta_schedule: linear
+- checkpoint: ./pretrain/model-8.pt
+- save_name: pretrain
+- data_folder: HistoMRI
+- batch_size: 5
+- finetune: True
+
+Loading checkpoint...
+Loading data...
+Evaluating...
+Average MSE:  0.000686
+Average PSNR: 31.71
+Average SSIM: 0.8576
+Visualising...
+Saved visualization to ./test_images/pretrain.jpg
+(CriDiff_env) [mmasramo@hogthrob-206-3 diffusion_basic]$ python3 test.py --checkpoint './finetune/model-best.pt' --save_name 'finetune' --finetune 
+Parameters:
+- use_histo: False
+- use_T2W: False
+- t2w_checkpoint: /cluster/project7/ProsRegNet_CellCount/UNet/checkpoints/checkpoints_0306_1947_stage_1_best.pth
+- img_size: 64
+- self_condition: True
+- dim_mults: [1, 2, 4, 8]
+- timesteps: 1000
+- sampling_timesteps: 150
+- beta_schedule: linear
+- checkpoint: ./finetune/model-best.pt
+- save_name: finetune
+- data_folder: HistoMRI
+- batch_size: 5
+- finetune: True
+
+Loading checkpoint...
+Loading data...
+Evaluating...
+Average MSE:  0.000775
+Average PSNR: 31.18
+Average SSIM: 0.8330
+Visualising...
+Saved visualization to ./test_images/finetune.jpg
+(CriDiff_env) [mmasramo@hogthrob-206-3 diffusion_basic]$ python3 test.py --checkpoint './finetune_surgical/model-best.pt' --save_name 'finetune_surgical' --finetune 
+Parameters:
+- use_histo: False
+- use_T2W: False
+- t2w_checkpoint: /cluster/project7/ProsRegNet_CellCount/UNet/checkpoints/checkpoints_0306_1947_stage_1_best.pth
+- img_size: 64
+- self_condition: True
+- dim_mults: [1, 2, 4, 8]
+- timesteps: 1000
+- sampling_timesteps: 150
+- beta_schedule: linear
+- checkpoint: ./finetune_surgical/model-best.pt
+- save_name: finetune_surgical
+- data_folder: HistoMRI
+- batch_size: 5
+- finetune: True
+
+Loading checkpoint...
+Loading data...
+Evaluating...
+Average MSE:  0.000761
+Average PSNR: 31.26
+Average SSIM: 0.8354
+Visualising...
+Saved visualization to ./test_images/finetune_surgical.jpg
+(CriDiff_env) [mmasramo@hogthrob-206-3 diffusion_basic]$ 
+(CriDiff_env) [mmasramo@hogthrob-206-3 diffusion_basic]$ [mmasramo@comic2 CriDiff]$ 

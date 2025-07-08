@@ -47,8 +47,8 @@ parser.add_argument('--use_histo',          action='store_true')
 parser.set_defaults(use_T2W   = False)
 parser.set_defaults(use_histo = False)
 # Log process
-parser.add_argument('--save_every',         type=int,  default=2000)
-parser.add_argument('--sample_every',       type=int,  default=2000)
+parser.add_argument('--save_every',         type=int,  default=1000)
+parser.add_argument('--sample_every',       type=int,  default=1000)
 
 args, unparsed = parser.parse_known_args()
 

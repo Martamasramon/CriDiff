@@ -181,6 +181,10 @@ class Trainer(object):
             milestone       = self.step // self.sample_every
             batches         = num_to_groups(self.num_samples, self.batch_size)
             sample_lowres   = data['LowRes'][:self.num_samples].to(self.accelerator.device)
+            if 'T2W' in data:
+                sample_t2w = []
+                for i in range(4):
+                    sample_t2w.append(data['T2W'][i][:self.num_samples].to(self.accelerator.device))
             
             # all_images_list = list(map(lambda n: self.ema.ema_model.sample(batch_size=n, cond=sample_lowres), batches))
             all_images_list = []
@@ -189,12 +193,16 @@ class Trainer(object):
 
             for n in batches:
                 end = min(start + n, total)
-                cond_slice = sample_lowres[start:end]
+                low_res = sample_lowres[start:end]
+                if 'T2W' in data:
+                    t2w = sample_t2w[start:end]
+                else:
+                    t2w = None
                 
-                if cond_slice.shape[0] == 0:
+                if low_res.shape[0] == 0:
                     break  # no more valid conditioning inputs
 
-                images = self.ema.ema_model.sample(batch_size=cond_slice.shape[0], low_res=cond_slice)
+                images = self.ema.ema_model.sample(batch_size=low_res.shape[0], low_res=low_res, t2w=t2w)
                 all_images_list.append(images)
                 start = end
         

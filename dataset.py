@@ -7,7 +7,7 @@ import torch
 
 import sys
 import os
-sys.path.append(os.path.abspath('../../UNet/runet_t2w'))
+sys.path.append(os.path.abspath('/cluster/project7/ProsRegNet_CellCount/UNet/runet_t2w'))
 from runetv2 import RUNet
 
 class MyDataset(Dataset):
@@ -72,9 +72,9 @@ class MyDataset(Dataset):
             sample['Histo'] = embed_histo
         
         if self.use_T2W:
-            t2w           = Image.open(f'{self.img_path}/T2W/{item["SID"]}').convert('L')
-            t2w_input     = self.t2w_transform(t2w)
-            sample['T2W'] = self.t2w_model.get_all_embeddings(t2w_input)
+            t2w               = Image.open(f'{self.img_path}/T2W/{item["SID"]}').convert('L')
+            sample['T2W_img'] = self.t2w_transform(t2w)
+            sample['T2W']     = self.t2w_model.get_all_embeddings(sample['T2W_img'])
             
         sample['LowRes']  = self.low_res_transform(img)
         sample['HighRes'] = self.high_res_transform(img)

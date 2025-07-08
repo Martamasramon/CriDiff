@@ -1,6 +1,6 @@
 #$ -l tmem=64G,h_vmem=64G
 #$ -l gpu=true
-#$ -l h_rt=20:00:00
+#$ -l h_rt=120:00:00
 
 #$ -S /bin/bash
 #$ -j y
@@ -20,6 +20,6 @@ export PATH="CriDiff_env/bin:$PATH"
 
 cd diffusion_IQT
 
-python3 train.py --use_T2W --results_folder './pretrain_t2w'
+python3 train.py --use_T2W --results_folder './pretrain_t2w_long' 
 
 date

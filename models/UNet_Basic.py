@@ -103,6 +103,8 @@ class UNet_Basic(nn.Module):
     def forward(self, input_x, low_res, time, x_self_cond=None):     
         B,C,H,W, = input_x.shape
         device   = input_x.device
+        if input_x.shape!= low_res.shape:
+            print(input_x.shape, low_res.shape)
         x = torch.cat((input_x, low_res), dim=1)
         
         if self.self_condition:
