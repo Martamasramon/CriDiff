@@ -33,21 +33,24 @@ parser.add_argument('--perct_λ',            type=float,default=0.1)
 # Testing
 parser.add_argument('--checkpoint',         type=str,  default='./results/model-8.pt')
 parser.add_argument('--save_name',          type=str,  default='test_image')
-parser.add_argument('--data_folder',        type=str,  default='HistoMRI')
 parser.add_argument('--batch_size',         type=int,  default=15)
 parser.add_argument('--finetune',           action='store_true')
 parser.set_defaults(finetune = False)
 # IQT
 parser.add_argument('--use_T2W',            action='store_true')
 parser.add_argument('--use_histo',          action='store_true')
+parser.add_argument('--use_mask',           action='store_true')
 parser.set_defaults(use_T2W   = False)
 parser.set_defaults(use_histo = False)
+parser.set_defaults(use_mask  = False)
 args, unparsed = parser.parse_known_args()
  
 def main():
     assert torch.cuda.is_available(), "CUDA not available!"
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+    data_folder = 'HistoMRI' if args.finetune else 'PICAI'
+    
     model = UNet_Attn(
         dim             = args.img_size,
         dim_mults       = tuple(args.dim_mults),
@@ -77,20 +80,21 @@ def main():
     
     print('Loading data...')
     dataset     = MyDataset(
-        folder + args.data_folder, 
+        folder + data_folder, 
         args.img_size, 
+        data_type       = 'val', 
+        is_finetune     = args.finetune,
         use_T2W         = args.use_T2W, 
-        is_train        = False, 
-        is_finetune     = args.finetune
+        use_mask        = args.use_mask,
     ) 
-    dataloader  = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
-
+    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
+ 
+    print('Visualising...')
+    visualize_batch(diffusion, dataloader, args.batch_size, device, output_name=f'{args.save_name}_{data_folder}', t2w=args.use_T2W)
+    
     print('Evaluating...')
     evaluate_results(diffusion, dataloader, device, args.batch_size, t2w=args.use_T2W)
-    
-    print('Visualising...')
-    visualize_batch(diffusion, dataloader, args.batch_size, device, output_name=args.save_name, t2w=args.use_T2W)
-    
+   
     
     
 if __name__ == '__main__':

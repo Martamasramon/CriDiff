@@ -20,6 +20,6 @@ export PATH="CriDiff_env/bin:$PATH"
 
 cd diffusion_basic
 
-python3 train.py --results_folder './pretrain' 
+python3 train.py --results_folder './pretrain_mask' --use_mask 
 
 date

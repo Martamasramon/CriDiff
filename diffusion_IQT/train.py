@@ -44,8 +44,10 @@ parser.add_argument('--ema_decay',          type=float,default=0.995)
 # IQT
 parser.add_argument('--use_T2W',            action='store_true')
 parser.add_argument('--use_histo',          action='store_true')
+parser.add_argument('--use_mask',           action='store_true')
 parser.set_defaults(use_T2W   = False)
 parser.set_defaults(use_histo = False)
+parser.set_defaults(use_mask  = False)
 # Log process
 parser.add_argument('--save_every',         type=int,  default=1000)
 parser.add_argument('--sample_every',       type=int,  default=1000)
@@ -78,19 +80,33 @@ def main():
         diffusion.load_state_dict(checkpoint['model'], strict=False)
                 
     # Dataset and dataloader   
-    dataset = MyDataset(
+        train_dataset = MyDataset(
         folder + args.data_folder, 
+        data_type       = 'train', 
         image_size      = args.img_size, 
         is_finetune     = args.finetune, 
         surgical_only   = args.surgical_only, 
+        use_mask        = args.use_mask,
         use_T2W         = args.use_T2W, 
-        use_histo       = args.use_histo
+        use_histo       = args.use_histo,
     ) 
-    dataloader = DataLoader(dataset, batch_size = args.batch_size, shuffle=True)
-
+    test_dataset = MyDataset(
+        folder + args.data_folder, 
+        data_type       = 'test', 
+        image_size      = args.img_size, 
+        is_finetune     = args.finetune, 
+        surgical_only   = args.surgical_only, 
+        use_mask        = args.use_mask,
+        use_T2W         = args.use_T2W, 
+        use_histo       = args.use_histo,
+    ) 
+    train_dataloader = DataLoader(train_dataset, batch_size = args.batch_size, shuffle=True)
+    test_dataloader  = DataLoader(test_dataset,  batch_size = args.batch_size, shuffle=False)
+        
     trainer = Trainer(
         diffusion,
-        dataloader,
+        train_dataloader,
+        test_dataloader,
         accelerator,
         use_T2W             = args.use_T2W,
         use_histo           = args.use_histo,

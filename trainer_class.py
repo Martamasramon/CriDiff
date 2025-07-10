@@ -27,7 +27,8 @@ class Trainer(object):
     def __init__(
         self,
         diffusion_model,
-        dataloader,
+        train_dataloader,
+        test_dataloader,
         accelerator,
         *,
         use_T2W                     = False,
@@ -79,8 +80,8 @@ class Trainer(object):
         self.image_size         = diffusion_model.image_size
         self.max_grad_norm      = max_grad_norm
 
-        dataloader      = self.accelerator.prepare(dataloader)
-        self.dataloader = cycle(dataloader)
+        self.train_dataloader = cycle(self.accelerator.prepare(train_dataloader))
+        self.test_dataloader  = cycle(self.accelerator.prepare(test_dataloader))
 
         self.opt = Adam(diffusion_model.parameters(), lr = lr, betas = adam_betas)
 
@@ -141,11 +142,17 @@ class Trainer(object):
         if exists(self.accelerator.scaler) and exists(data['scaler']):
             self.accelerator.scaler.load_state_dict(data['scaler'])
 
-    def calc_loss(self, ):
+    def calc_loss(self, train=True):
+        if train:
+            self.model.train()
+        else:
+            self.model.eval()
+            
         total_loss, total_mse, total_percpt, total_ssim = 0.0, 0.0, 0.0, 0.0
+        dataloader = self.train_dataloader if train else self.test_dataloader
 
         for _ in range(self.gradient_accumulate_every):
-            data = next(self.dataloader)
+            data = next(dataloader)
             
             for key, value in data.items():
                 try:
@@ -169,10 +176,11 @@ class Trainer(object):
                 total_percpt += perct.item() / self.gradient_accumulate_every
                 total_ssim   += ssim.item()  / self.gradient_accumulate_every
 
-            self.accelerator.backward(loss)
-            for name, param in self.model.named_parameters():
-                if param.grad is None:
-                    print(name)
+            if train:
+                self.accelerator.backward(loss)
+                for name, param in self.model.named_parameters():
+                    if param.grad is None:
+                        print(name)
                     
         return data, total_loss, total_mse, total_percpt, total_ssim
                     
@@ -194,15 +202,16 @@ class Trainer(object):
             for n in batches:
                 end = min(start + n, total)
                 low_res = sample_lowres[start:end]
-                if 'T2W' in data:
-                    t2w = sample_t2w[start:end]
-                else:
-                    t2w = None
                 
                 if low_res.shape[0] == 0:
                     break  # no more valid conditioning inputs
-
-                images = self.ema.ema_model.sample(batch_size=low_res.shape[0], low_res=low_res, t2w=t2w)
+                
+                if 'T2W' in data:
+                    t2w    = sample_t2w[start:end]
+                    images = self.ema.ema_model.sample(batch_size=low_res.shape[0], low_res=low_res, t2w=t2w)
+                else:
+                    images = self.ema.ema_model.sample(batch_size=low_res.shape[0], low_res=low_res)
+                    
                 all_images_list.append(images)
                 start = end
         
@@ -218,7 +227,8 @@ class Trainer(object):
 
             while self.step < self.train_num_steps:
                 # Calculate loss
-                data, total_loss, total_mse, total_percpt, total_ssim = self.calc_loss()
+                _,    total_loss_train, total_mse_train, total_percpt_train, total_ssim_train = self.calc_loss(train=True)
+                data, total_loss_test , total_mse_test , total_percpt_test , total_ssim_test  = self.calc_loss(train=False)
                 
                 accelerator.wait_for_everyone()
                 accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
@@ -241,8 +251,8 @@ class Trainer(object):
                     if self.step != 0 and divisible_by(self.step, self.save_every):
                         milestone = self.step // self.save_every
                         if self.save_best_and_latest_only:
-                            if self.best_mse > total_mse:
-                                self.best_mse = total_mse
+                            if self.best_mse > total_mse_test:
+                                self.best_mse = total_mse_test
                                 self.save("best")
                             self.save("latest")
                         else:
@@ -250,7 +260,8 @@ class Trainer(object):
                 
                 # Update pbar
                 if self.step % 100 == 0:
-                    pbar.set_description(f"loss: {total_loss:.4f} (MSE: {total_mse:.4f},  perct: {total_percpt:.4f}, SSIM: {total_ssim:.4f},)")
+                    pbar.set_description(f"Train loss: {total_loss_train:.4f} (MSE: {total_mse_train:.4f},  perct: {total_percpt_train:.4f}, SSIM: {total_ssim_train:.4f},)\n"+
+                                         f"Test loss:  {total_loss_test:.4f} (MSE: {total_mse_test:.4f},  perct: {total_percpt_test:.4f}, SSIM: {total_ssim_test:.4f},)")
                     pbar.update(100)
 
         accelerator.print('training complete')

@@ -20,9 +20,9 @@ export PATH="CriDiff_env/bin:$PATH"
 
 cd diffusion_basic
 
-python3 test.py --checkpoint './pretrain_t2w_long/model-best.pt' --save_name 'pretrain' --finetune --use_T2W
+python3 test.py --checkpoint './pretrain_mask/model-best.pt' --save_name 'masked' --use_mask
 
-python3 test.py --checkpoint './pretrain/model-8.pt' --save_name 'pretrain' --finetune 
+python3 test.py --checkpoint './pretrain/model-8.pt' --save_name 'pretrain_onmask' --use_mask 
 python3 test.py --checkpoint './finetune/model-best.pt' --save_name 'finetune' --finetune 
 python3 test.py --checkpoint './finetune_surgical/model-best.pt' --save_name 'finetune_surgical' --finetune 
 
