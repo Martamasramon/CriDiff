@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import os
 import matplotlib.pyplot as plt
+import cv2 
 
 from skimage.metrics import structural_similarity   as ssim_metric
 from skimage.metrics import peak_signal_noise_ratio as psnr_metric
@@ -9,7 +10,7 @@ from skimage.metrics import mean_squared_error      as mse_metric
 
 import sys
 sys.path.append('../models')
-from network_utils   import *
+from models.network_utils import *
 
 def compute_metrics(pred, gt):
     pred_np = pred.squeeze().cpu().numpy()
@@ -25,10 +26,12 @@ def evaluate_results(diffusion, dataloader, device, batch_size, t2w=False):
     for batch in dataloader:
         highres   = batch['HighRes'].to(device)
         lowres    = batch['LowRes'].to(device)
+        
         if t2w:
-            t2w_img = [np.squeeze(i).to(device) for i in batch['T2W']]
+            t2w_input = [np.squeeze(i).to(device) for i in batch['T2W']]
+            t2w_input = (t2w_input[0].unsqueeze(1), t2w_input[1], t2w_input[2], t2w_input[3])
             with torch.no_grad():
-                pred = diffusion.sample(lowres, batch_size=lowres.shape[0], t2w=t2w_img)
+                pred = diffusion.sample(lowres, batch_size=lowres.shape[0], t2w=t2w_input)
         else:
             with torch.no_grad():
                 pred = diffusion.sample(lowres, batch_size=lowres.shape[0])
@@ -49,45 +52,64 @@ def format_image(tensor):
     return tensor.squeeze().detach().cpu().numpy()
 
 
-def visualize_batch(diffusion, dataloader, batch_size, device, t2w=False, output_name="test_image"):
-    ncols = 4 if t2w else 3
+def plot_image(image, fig, axes, i, j, colorbar=True):
+    image  = format_image(image)
+            
+    img_plot = axes[i, j].imshow(image,  cmap='gray', vmin=0, vmax=1)
+    axes[i, j].axis('off')
+    if colorbar:
+        fig.colorbar(img_plot, ax=axes[i, j])
+    
+def visualize_batch(diffusion, dataloader, batch_size, device, use_T2W=False, output_name="test_image"):
+    ncols = 5 if use_T2W else 4
     fig, axes = plt.subplots(nrows=batch_size, ncols=ncols, figsize=(3*ncols,3*batch_size))
     axes[0,0].set_title('Low res (Input)')
     axes[0,1].set_title('Super resolution (Output)')
-    axes[0,2].set_title('High res (Ground truth)')
-    if t2w:
-        axes[0,3].set_title('High res T2W')
+    axes[0,2].set_title('Error')
+    axes[0,3].set_title('High res (Ground truth)')
+    if use_T2W:
+        axes[0,4].set_title('High res T2W')
         
     # Get images 
     batch   = next(iter(dataloader))
     highres = batch['HighRes'].to(device)
     lowres  = batch['LowRes'].to(device)
-    if t2w:
-        t2w_input = [np.squeeze(i).to(device) for i in batch['T2W']]
-        t2w_img   = batch['T2W_img'].to(device)
-        with torch.no_grad():
-            pred  = diffusion.sample(lowres, batch_size=lowres.shape[0], t2w=t2w_input)
+    
+    if diffusion is not None:
+        if use_T2W:
+            t2w_input = [np.squeeze(i).to(device) for i in batch['T2W']]
+            t2w_input = (t2w_input[0].unsqueeze(1), t2w_input[1], t2w_input[2], t2w_input[3])
+
+            with torch.no_grad():
+                pred  = diffusion.sample(lowres, batch_size=lowres.shape[0], t2w=t2w_input)
+        else:
+            with torch.no_grad():
+                pred  = diffusion.sample(lowres, batch_size=lowres.shape[0])
     else:
-        with torch.no_grad():
-            pred  = diffusion.sample(lowres, batch_size=lowres.shape[0])
+        lowres    = batch['LowRes']
+        full_size = lowres.shape[-1]
+        for i in range(batch_size):
+            lowres[i] = cv2.resize(lowres[i], (full_size//2,full_size//2))
+            lowres[i] = cv2.resize(lowres[i], (full_size,full_size), interpolation=cv2.INTER_LINEAR)
+        lowres    = lowres.to(device)
 
     for i in range(batch_size):
-        im0 = axes[i, 0].imshow(format_image(lowres[i]),  cmap='gray', vmin=0, vmax=1)
-        axes[i, 0].axis('off')
-        fig.colorbar(im0, ax=axes[i, 0])
+        # Plot images
+        plot_image(lowres[i],  fig, axes, i, 0)
+        plot_image(pred[i],    fig, axes, i, 1)
+        plot_image(pred[i],    fig, axes, i, 2, False)
+        plot_image(highres[i], fig, axes, i, 3)
+        if use_T2W:
+            plot_image(t2w_input[0][i], fig, axes, i, 4)
 
-        im1 = axes[i, 1].imshow(format_image(pred[i]),    cmap='gray', vmin=0, vmax=1)
-        axes[i, 1].axis('off')
-        fig.colorbar(im1, ax=axes[i, 1])
-        
-        im2 = axes[i, 2].imshow(format_image(highres[i]), cmap='gray', vmin=0, vmax=1)
-        axes[i, 2].axis('off')
-        fig.colorbar(im2, ax=axes[i, 2])
-        
-        if t2w:
-            im3 = axes[i, 3].imshow(format_image(t2w_img[i]), cmap='gray', vmin=0, vmax=1)
-            axes[i, 3].axis('off')
-            fig.colorbar(im3, ax=axes[i, 3])
+        # Error
+        err = np.abs(format_image(pred[i]) - format_image(highres[i]))
+        p99 = np.percentile(err, 99.5)
+        den = p99 if p99 > 1e-8 else (err.max() + 1e-8)
+        err_norm = np.clip(err / den, 0, 1)
+
+        im_overlay = axes[i, 2].imshow(err_norm, cmap='RdYlGn_r', vmin=0, vmax=1, alpha=0.6)
+        cbar = fig.colorbar(im_overlay, ax=axes[i, 2])
 
     fig.tight_layout(pad=0.25)
     save_path = os.path.join('./test_images', output_name+'.jpg')

@@ -2,6 +2,7 @@ import numpy as np
 import os
 import time
 import torch
+torch.cuda.set_device(0)
 import glob
 import argparse
 import torch.nn as nn
@@ -80,7 +81,7 @@ def main():
         diffusion.load_state_dict(checkpoint['model'], strict=False)
                 
     # Dataset and dataloader   
-        train_dataset = MyDataset(
+    train_dataset = MyDataset(
         folder + args.data_folder, 
         data_type       = 'train', 
         image_size      = args.img_size, 

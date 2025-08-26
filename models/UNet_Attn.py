@@ -25,7 +25,7 @@ class UNet_Attn(UNet_Basic):
         self.ups                = nn.ModuleList([])
         
         # Figure out size of context vectors for cross attention
-        t2w_channels   = [64, 128, 256, 512]
+        t2w_channels   = [1, 64, 128, 256]
         histo_channel  = 768
         context_channels = []
         for i in range(len(self.in_out_mask)):

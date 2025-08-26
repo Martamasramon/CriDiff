@@ -18,11 +18,11 @@ export LD_LIBRARY_PATH=/share/apps/python-3.9.5-shared/lib:$LD_LIBRARY_PATH
 source CriDiff_env/bin/activate
 export PATH="CriDiff_env/bin:$PATH"
 
-cd diffusion_basic
+cd diffusion_IQT
+python3 test.py --checkpoint './pretrain_t2w_64_fixed/model-best.pt' --save_name 't2w_64_fixed' --use_T2W
 
-python3 test.py --checkpoint './pretrain_mask/model-best.pt' --save_name 'masked' --use_mask
-
-python3 test.py --checkpoint './pretrain/model-8.pt' --save_name 'pretrain_onmask' --use_mask 
+cd ../diffusion_basic
+python3 test.py --checkpoint './pretrain/model-8.pt' --save_name 'pretrain'
 python3 test.py --checkpoint './finetune/model-best.pt' --save_name 'finetune' --finetune 
 python3 test.py --checkpoint './finetune_surgical/model-best.pt' --save_name 'finetune_surgical' --finetune 
 

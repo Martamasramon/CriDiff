@@ -1,5 +1,6 @@
 import time
 import torch
+torch.cuda.set_device(0)
 import argparse
 import torch.nn as nn
 import os
@@ -90,7 +91,7 @@ def main():
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
  
     print('Visualising...')
-    visualize_batch(diffusion, dataloader, args.batch_size, device, output_name=f'{args.save_name}_{data_folder}', t2w=args.use_T2W)
+    visualize_batch(diffusion, dataloader, args.batch_size, device, output_name=f'{args.save_name}_{data_folder}', use_T2W=args.use_T2W)
     
     print('Evaluating...')
     evaluate_results(diffusion, dataloader, device, args.batch_size, t2w=args.use_T2W)
