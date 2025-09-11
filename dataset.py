@@ -32,7 +32,7 @@ class MyDataset(Dataset):
             root += '_surgical'
         
         self.masked     = '_mask' if use_mask else ''
-        self.img_path   = img_path
+        self.img_path   = img_path + 'HistoMRI' if finetune else img_path + 'PICAI' 
         self.img_dict   = pd.read_csv(f'/cluster/project7/ProsRegNet_CellCount/Dataset_preparation/{root}{self.masked}_{data_type}.csv')
         self.image_size = image_size
         self.use_histo  = use_histo

@@ -4,7 +4,6 @@ import time
 import torch
 torch.cuda.set_device(0)
 import glob
-import argparse
 import torch.nn as nn
 from accelerate import Accelerator
 from torch.utils.data import DataLoader
@@ -18,42 +17,10 @@ import sys
 sys.path.append('../')
 from trainer_class  import Trainer
 from dataset        import MyDataset
+from argmuments     import args
 
 folder = '/cluster/project7/backup_masramon/IQT/'
-
 os.environ['CUDA_VISIBLE_DEVICES']='0,1'
-parser = argparse.ArgumentParser("Diffusion")
-# UNet
-parser.add_argument('--img_size',           type=int,  default=64)
-parser.add_argument('--self_condition',     type=bool, default=True)
-parser.add_argument('--dim_mults',          type=int,  nargs='+', default=[1, 2, 4, 8])
-# Diffusion
-parser.add_argument('--timesteps',          type=int,  default=1000)
-parser.add_argument('--sampling_timesteps', type=int,  default=150)
-parser.add_argument('--beta_schedule',      type=str,  default='linear')
-parser.add_argument('--perct_λ',            type=float,default=0.1)
-# Training
-parser.add_argument('--data_folder',        type=str,  default='PICAI')
-parser.add_argument('--finetune',           type=str,  default=None)
-parser.add_argument('--surgical_only',      action='store_true')
-parser.set_defaults(surgical_only = False)
-parser.add_argument('--results_folder',     type=str,  default='./results')
-parser.add_argument('--batch_size',         type=int,  default=16)
-parser.add_argument('--lr',                 type=float,default=8e-5)
-parser.add_argument('--n_epochs',           type=int,  default=40000)
-parser.add_argument('--ema_decay',          type=float,default=0.995)
-# IQT
-parser.add_argument('--use_T2W',            action='store_true')
-parser.add_argument('--use_histo',          action='store_true')
-parser.add_argument('--use_mask',           action='store_true')
-parser.set_defaults(use_T2W   = False)
-parser.set_defaults(use_histo = False)
-parser.set_defaults(use_mask  = False)
-# Log process
-parser.add_argument('--save_every',         type=int,  default=1000)
-parser.add_argument('--sample_every',       type=int,  default=1000)
-
-args, unparsed = parser.parse_known_args()
 
 def main():
     assert args.use_T2W or args.use_histo == True
@@ -76,13 +43,13 @@ def main():
         perct_λ             = args.perct_λ
     )
     
-    if args.finetune:
+    if args.checkpoint:
         checkpoint = torch.load(args.checkpoint, map_location=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
         diffusion.load_state_dict(checkpoint['model'], strict=False)
                 
     # Dataset and dataloader   
     train_dataset = MyDataset(
-        folder + args.data_folder, 
+        folder, 
         data_type       = 'train', 
         image_size      = args.img_size, 
         is_finetune     = args.finetune, 
@@ -92,7 +59,7 @@ def main():
         use_histo       = args.use_histo,
     ) 
     test_dataset = MyDataset(
-        folder + args.data_folder, 
+        folder, 
         data_type       = 'test', 
         image_size      = args.img_size, 
         is_finetune     = args.finetune, 
