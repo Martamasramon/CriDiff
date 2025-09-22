@@ -16,7 +16,7 @@ import sys
 sys.path.append('../')
 from trainer_class  import Trainer
 from dataset        import MyDataset
-from argmuments     import args
+from arguments     import args
 
 folder = '/cluster/project7/backup_masramon/IQT/'
 os.environ['CUDA_VISIBLE_DEVICES']='0,1'
@@ -50,7 +50,8 @@ def main():
         image_size      = args.img_size, 
         is_finetune     = args.finetune, 
         surgical_only   = args.surgical_only, 
-        use_mask        = args.use_mask,
+        use_mask        = args.use_mask, 
+        downsample      = args.down
     ) 
     test_dataset = MyDataset(
         folder, 
@@ -58,7 +59,8 @@ def main():
         image_size      = args.img_size, 
         is_finetune     = args.finetune, 
         surgical_only   = args.surgical_only, 
-        use_mask        = args.use_mask,
+        use_mask        = args.use_mask, 
+        downsample      = args.down
     ) 
     train_dataloader = DataLoader(train_dataset, batch_size = args.batch_size, shuffle=True)
     test_dataloader  = DataLoader(test_dataset,  batch_size = args.batch_size, shuffle=False)

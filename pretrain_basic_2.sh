@@ -20,6 +20,6 @@ export PATH="CriDiff_env/bin:$PATH"
 
 cd diffusion_basic
 
-python3 train.py --results_folder './pretrain_down4' --down 4 
+python3 train.py --results_folder './pretrain_down8' --down 8
 
 date

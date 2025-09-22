@@ -16,36 +16,14 @@ import sys
 sys.path.append('../')
 from dataset         import MyDataset
 from test_functions  import *
+from arguments       import args
 
 folder = '/cluster/project7/backup_masramon/IQT/'
-
 os.environ['CUDA_VISIBLE_DEVICES']='0,1'
-parser = argparse.ArgumentParser("Diffusion")
-# UNet
-parser.add_argument('--img_size',           type=int,  default=64)
-parser.add_argument('--self_condition',     type=bool, default=True)
-parser.add_argument('--dim_mults',          type=int,  nargs='+', default=[1, 2, 4, 8])
-# Diffusion
-parser.add_argument('--timesteps',          type=int,  default=1000)
-parser.add_argument('--sampling_timesteps', type=int,  default=150)
-parser.add_argument('--beta_schedule',      type=str,  default='linear')
-# Testing
-parser.add_argument('--checkpoint',         type=str,  default='./results/model-8.pt')
-parser.add_argument('--save_name',          type=str,  default='test_image')
-parser.add_argument('--batch_size',         type=int,  default=15)
-parser.add_argument('--finetune',           action='store_true')
-
-parser.add_argument('--use_mask',           action='store_true')
-parser.set_defaults(use_mask  = False)
-
-parser.set_defaults(finetune = False)
-args, unparsed = parser.parse_known_args()
  
 def main():
     assert torch.cuda.is_available(), "CUDA not available!"
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    data_folder = 'HistoMRI' if args.finetune else 'PICAI'
 
     model = UNet_Basic(
         dim             = args.img_size,
@@ -73,16 +51,20 @@ def main():
     
     print('Loading data...')
     dataset     = MyDataset(
-        folder + data_folder, 
+        folder, 
         args.img_size, 
         data_type       = 'val', 
         is_finetune     = args.finetune,
-        use_mask        = args.use_mask,
+        use_mask        = args.use_mask, 
+        downsample      = args.down
     ) 
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
 
     print('Visualising...')
-    visualize_batch(diffusion, dataloader, args.batch_size, device, output_name=f'{args.save_name}_{data_folder}')
+    save_name = args.save_name if args.save_name is not None else os.path.basename(os.path.dirname(args.checkpoint))
+    test_data = 'HistoMRI' if args.finetune else 'PICAI'
+    
+    visualize_batch(diffusion, dataloader, args.batch_size, device, output_name=f'{save_name}_{test_data}')
     
     print('Evaluating...')
     evaluate_results(diffusion, dataloader, device, args.batch_size)

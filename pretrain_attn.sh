@@ -21,6 +21,6 @@ export PATH="CriDiff_env/bin:$PATH"
 cd diffusion_IQT
 
 
-python3 train.py --use_T2W --results_folder './pretrain_t2w_64_fixed' 
+python3 train.py --use_T2W --results_folder './pretrain_down4' --down 4
 
 date

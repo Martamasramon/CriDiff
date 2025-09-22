@@ -19,11 +19,15 @@ source CriDiff_env/bin/activate
 export PATH="CriDiff_env/bin:$PATH"
 
 cd diffusion_IQT
-python3 test.py --checkpoint './pretrain_t2w_64_fixed/model-best.pt' --save_name 't2w_64_fixed' --use_T2W
+python3 test.py --checkpoint './pretrain/model-best.pt'  --use_T2W --save_name 'pretrain_blank_t2w'
+python3 test.py --checkpoint './pretrain_down4/model-best.pt'  --use_T2W --down 4
+python3 test.py --checkpoint './pretrain_down8/model-best.pt'  --use_T2W --down 8
 
 cd ../diffusion_basic
-python3 test.py --checkpoint './pretrain/model-8.pt' --save_name 'pretrain'
-python3 test.py --checkpoint './finetune/model-best.pt' --save_name 'finetune' --finetune 
-python3 test.py --checkpoint './finetune_surgical/model-best.pt' --save_name 'finetune_surgical' --finetune 
+python3 test.py --checkpoint './pretrain/model-8.pt' 
+python3 test.py --checkpoint './pretrain_mask/model-best.pt' --use_mask 
+python3 test.py --checkpoint './pretrain_down4/model-best.pt' --down 4
+python3 test.py --checkpoint './pretrain_down8/model-best.pt' --down 8
 
 date
+

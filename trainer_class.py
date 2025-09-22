@@ -35,7 +35,6 @@ class Trainer(object):
         use_histo                   = False,
         batch_size                  = 16,
         gradient_accumulate_every   = 1,
-        # augment_horizontal_flip     = True,
         lr                          = 1e-4,
         train_num_steps             = 100000,
         ema_update_every            = 10,
@@ -61,11 +60,7 @@ class Trainer(object):
         
         self.use_histo  = use_histo
         self.use_T2W    = use_T2W
-
-        # # default convert_image_to depending on channels
-        # if not exists(convert_image_to):
-        #     convert_image_to = {1: 'L', 3: 'RGB', 4: 'RGBA'}.get(self.channels)
-
+        
         # sampling and training hyperparameters
         assert has_int_squareroot(num_samples), 'number of samples must have an integer square root'
         self.num_samples    = num_samples
@@ -161,13 +156,9 @@ class Trainer(object):
                     data[key] = [i.to(self.accelerator.device) for i in value]
                      
             with self.accelerator.autocast():
-                if self.use_T2W and self.use_histo:
-                    loss, mse, perct, ssim = self.model(data['HighRes'], data['LowRes'], t2w=data['T2W'], histo=data['Histo'])
-                elif self.use_T2W:
+                if self.use_T2W:
                     data['T2W'] = [t.squeeze(1) for t in data['T2W']]
                     loss, mse, perct, ssim = self.model(data['HighRes'], data['LowRes'], t2w=data['T2W'])
-                elif self.use_histo:
-                    loss, mse, perct, ssim = self.model(data['HighRes'], data['LowRes'], histo=data['Histo'])
                 else:
                     loss, mse, perct, ssim = self.model(data['HighRes'], data['LowRes'])
                 

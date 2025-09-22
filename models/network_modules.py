@@ -786,3 +786,11 @@ class Conditioning(nn.Module):
         # there is a downsample right after the Condition block (but maybe theres a better place to condition than right before the downsample)
 
         return self.block(c)
+    
+    
+class ZeroConv2d(nn.Conv2d):
+    def __init__(self, in_ch, out_ch):
+        super().__init__(in_ch, out_ch, kernel_size=1, padding=0)
+        nn.init.zeros_(self.weight)
+        nn.init.zeros_(self.bias)
+        
