@@ -20,8 +20,8 @@ class Diffusion_Attn(Diffusion_Basic):
         super().__init__(*args, **kwargs)
 
     
-    def model_predictions(self, x, low_res, t, t2w=None, histo=None, x_self_cond = None, clip_x_start = False, rederive_pred_noise = False):
-        model_output = self.model.forward(x,low_res, t, t2w, histo, x_self_cond)
+    def model_predictions(self, x, low_res, t, t2w=None, x_self_cond = None, clip_x_start = False, rederive_pred_noise = False):
+        model_output = self.model.forward(x,low_res, t, t2w, x_self_cond)
         maybe_clip = partial(torch.clamp, min = -1., max = 1.) if clip_x_start else identity
 
         if self.objective == 'pred_noise':

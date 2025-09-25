@@ -53,9 +53,9 @@ class UNet_Attn(UNet_Basic):
             ]))
 
 
-    def forward(self, input_x, low_res, time, t2w=None, x_self_cond=None):   
+    def forward(self, input_x, low_res, time, x_self_cond=None, t2w=None, control=None):   
         assert not (self.use_T2W   and t2w   is None), "T2W embedding required but not provided"
-                  
+                
         B,C,H,W, = input_x.shape
         device   = input_x.device
         

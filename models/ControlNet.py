@@ -27,8 +27,7 @@ class ControlNet(nn.Module):
 
         self.init_conv = nn.Conv2d(control_in_channels, dim, 7, padding=3)
         
-        dims_mask        = [dim, *map(lambda m: dim*m, dim_mults)]
-        self.in_out_mask = list(zip(dims_mask[:-1], dims_mask[1:]))
+        dims = [dim, *map(lambda m: dim*m, dim_mults)]
 
         # time embedding (match UNet)
         if with_time_emb:
@@ -47,24 +46,24 @@ class ControlNet(nn.Module):
         self.ups        = nn.ModuleList([])
         self.up_projs   = nn.ModuleList([])
         
-        self.num_resolutions = len(self.in_out_mask)
-
         # ---- DOWN ---- #
-        for ind, (dim_in, dim_out) in enumerate(self.in_out_mask):
-            is_last = ind >= (self.num_resolutions - 1)
+        num_res = len(dims) - 1
+        ch      = dims[0]
+
+        for i in range(num_res):
+            next_ch = dims[i+1]
             
             self.downs.append(nn.ModuleList([
-                self.block_klass(dim_in, dim_in, time_emb_dim = self.time_dim),
-                self.block_klass(dim_in, dim_in, time_emb_dim = self.time_dim),
-
-                Downsample(dim_in, dim_out) if not is_last else nn.Conv2d(dim_in, dim_out, 3, padding = 1)
+                self.block_klass(ch, ch, time_emb_dim = self.time_dim),
+                self.block_klass(ch, ch, time_emb_dim = self.time_dim),
+                Downsample(ch, next_ch) if i < (num_res - 1) else nn.Conv2d(ch, next_ch, 3, padding = 1)
             ]))
             
-            # residuals should match the post-block activations (dim_in channels)
-            self.down_projs.append(nn.ModuleList([ZeroConv2d(dim_in, dim_in), ZeroConv2d(dim_in, dim_in)]))
+            self.down_projs.append(nn.ModuleList([ZeroConv2d(ch, ch), ZeroConv2d(ch, ch)]))
+            ch = next_ch 
  
         # ---- MID ---- #
-        mid_dim = dims_mask[-1]
+        mid_dim = ch
         
         self.mid_block1 = self.block_klass(mid_dim, mid_dim, time_emb_dim=self.time_dim)
         self.mid_attn   = Residual(PreNorm(mid_dim, LinearCrossAttention(mid_dim)))
@@ -74,22 +73,23 @@ class ControlNet(nn.Module):
         self.mid_proj2  = ZeroConv2d(mid_dim, mid_dim)
 
         # ---- UP ---- #
-        for ind, (dim_in, dim_out) in enumerate(reversed(self.in_out_mask)):
-            is_last = ind >= (self.num_resolutions - 1)
+        for i in reversed(range(num_res)):
+            prev_ch = dims[i]
             
             self.ups.append(nn.ModuleList([
                 # UNet takes in concatenated inputs (dim_in*3 or dim_in*2), but ControlNet injects after the block (dim_in)
-                self.block_klass(dim_in, dim_in, time_emb_dim=self.time_dim),
-                self.block_klass(dim_in, dim_in, time_emb_dim=self.time_dim),
-                
-                Upsample(dim_in, dim_in) if not is_last else  nn.Conv2d(dim_in, dim_in, 3, padding = 1)
+                self.block_klass(ch, prev_ch, time_emb_dim=self.time_dim),
+                self.block_klass(prev_ch, prev_ch, time_emb_dim=self.time_dim),
+                Upsample(prev_ch, prev_ch) if i > 0 else nn.Conv2d(prev_ch, prev_ch, 3, padding=1)
             ]))
 
-            self.up_projs.append(nn.ModuleList([ZeroConv2d(dim_in, dim_in), ZeroConv2d(dim_in, dim_in)]))
+            self.up_projs.append(nn.ModuleList([ZeroConv2d(prev_ch, prev_ch), ZeroConv2d(prev_ch, prev_ch)]))
+            ch = prev_ch
 
         # ---- FINAL ---- #
-        self.final_res_block = self.block_klass(dim, dim, time_emb_dim=self.time_dim)
-        self.final_proj      = ZeroConv2d(dim, dim)
+        self.final_block = self.block_klass(ch, ch, time_emb_dim=self.time_dim)
+        self.final_proj  = ZeroConv2d(ch, ch)
+
 
     def forward(self, control, time):
         """

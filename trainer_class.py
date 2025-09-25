@@ -31,8 +31,8 @@ class Trainer(object):
         test_dataloader,
         accelerator,
         *,
-        use_T2W                     = False,
-        use_histo                   = False,
+        use_t2w                     = False,
+        use_t2w_embed               = False,
         batch_size                  = 16,
         gradient_accumulate_every   = 1,
         lr                          = 1e-4,
@@ -58,8 +58,8 @@ class Trainer(object):
         self.channels       = diffusion_model.input_img_channels
         is_ddim_sampling    = diffusion_model.is_ddim_sampling
         
-        self.use_histo  = use_histo
-        self.use_T2W    = use_T2W
+        self.use_t2w        = use_t2w
+        self.use_t2w_embed  = use_t2w_embed
         
         # sampling and training hyperparameters
         assert has_int_squareroot(num_samples), 'number of samples must have an integer square root'
@@ -156,11 +156,14 @@ class Trainer(object):
                     data[key] = [i.to(self.accelerator.device) for i in value]
                      
             with self.accelerator.autocast():
-                if self.use_T2W:
-                    data['T2W'] = [t.squeeze(1) for t in data['T2W']]
-                    loss, mse, perct, ssim = self.model(data['HighRes'], data['LowRes'], t2w=data['T2W'])
+                control = data['T2W'] if self.model.controlnet else None
+                t2w_in  = data['T2W'] if self.use_t2w else None
+                
+                if self.use_t2w_embed:
+                    data['T2W_embed'] = [t.squeeze(1) for t in data['T2W_embed']]
+                    loss, mse, perct, ssim = self.model(data['HighRes'], data['LowRes'], t2w=data['T2W_embed'])
                 else:
-                    loss, mse, perct, ssim = self.model(data['HighRes'], data['LowRes'])
+                    loss, mse, perct, ssim = self.model(data['HighRes'], data['LowRes'], control=control, t2w=t2w_in)
                 
                 total_loss   += loss.item()  / self.gradient_accumulate_every
                 total_mse    += mse.item()   / self.gradient_accumulate_every
@@ -169,9 +172,9 @@ class Trainer(object):
 
             if train:
                 self.accelerator.backward(loss)
-                for name, param in self.model.named_parameters():
-                    if param.grad is None:
-                        print(name)
+                # for name, param in self.model.named_parameters():
+                #     if param.grad is None:
+                #         print(name)
                     
         return data, total_loss, total_mse, total_percpt, total_ssim
                     
@@ -180,10 +183,11 @@ class Trainer(object):
             milestone       = self.step // self.sample_every
             batches         = num_to_groups(self.num_samples, self.batch_size)
             sample_lowres   = data['LowRes'][:self.num_samples].to(self.accelerator.device)
-            if 'T2W' in data:
-                sample_t2w = []
+            sample_t2w      = data['T2W'][:self.num_samples].to(self.accelerator.device) if self.model.controlnet | self.model.concat_t2w else None
+            if 'T2W_embed' in data:
+                sample_t2w_embed = []
                 for i in range(4):
-                    sample_t2w.append(data['T2W'][i][:self.num_samples].to(self.accelerator.device))
+                    sample_t2w_embed.append(data['T2W_embed'][i][:self.num_samples].to(self.accelerator.device))
             
             # all_images_list = list(map(lambda n: self.ema.ema_model.sample(batch_size=n, cond=sample_lowres), batches))
             all_images_list = []
@@ -193,15 +197,18 @@ class Trainer(object):
             for n in batches:
                 end = min(start + n, total)
                 low_res = sample_lowres[start:end]
-                
+                t2w     = sample_t2w[start:end] if sample_t2w is not None else None
+
                 if low_res.shape[0] == 0:
                     break  # no more valid conditioning inputs
                 
-                if 'T2W' in data:
-                    t2w    = sample_t2w[start:end]
-                    images = self.ema.ema_model.sample(batch_size=low_res.shape[0], low_res=low_res, t2w=t2w)
+                if 'T2W_embed' in data:
+                    t2w_embed = sample_t2w_embed[start:end]
+                    images    = self.ema.ema_model.sample(batch_size=low_res.shape[0], low_res=low_res, t2w=t2w_embed)
                 else:
-                    images = self.ema.ema_model.sample(batch_size=low_res.shape[0], low_res=low_res)
+                    control = t2w if self.model.controlnet else None
+                    t2w_in  = t2w if self.model.concat_t2w else None
+                    images  = self.ema.ema_model.sample(batch_size=low_res.shape[0], low_res=low_res, control=control, t2w=t2w_in)
                     
                 all_images_list.append(images)
                 start = end

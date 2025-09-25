@@ -15,7 +15,8 @@ class UNet_Basic(nn.Module):
         dim_mults       = (1, 2, 4, 8),
         self_condition  = True,
         with_time_emb   = True,
-        controlnet      = None 
+        controlnet      = False,
+        concat_t2w      = False
     ):
         super().__init__()
 
@@ -30,9 +31,11 @@ class UNet_Basic(nn.Module):
         self.mask_channels      = 1
         cond_channels           = 1  # conditioning image
         self_cond_channels      = 1 if self_condition else 0
-        input_channels          = self.mask_channels + cond_channels + self_cond_channels
+        t2w_channels            = 1 if concat_t2w else 0 
+        input_channels          = self.mask_channels + cond_channels + self_cond_channels + t2w_channels
 
-        self.controlnet         = ControlNet(dim, dim_mults, 1, with_time_emb)
+        self.controlnet         = ControlNet(dim, dim_mults, 1, with_time_emb) if controlnet else False
+        self.concat_t2w         = concat_t2w
 
         dims_mask        = [dim, *map(lambda m: dim * m, dim_mults)]
         self.in_out_mask = list(zip(dims_mask[:-1], dims_mask[1:]))
@@ -103,11 +106,11 @@ class UNet_Basic(nn.Module):
         return GroupNorm32(32, channels)
 
 
-    def forward(self, input_x, low_res, time, x_self_cond=None, control=None):     
+    def forward(self, input_x, low_res, time, x_self_cond=None, t2w=None, control=None):     
         assert input_x.shape == low_res.shape, 'Input different size to condition!'
-        
+
         B,C,H,W, = input_x.shape
-        x = torch.cat((input_x, low_res), dim=1)
+        x = torch.cat((input_x, low_res, t2w), dim=1) if t2w is not None else torch.cat((input_x, low_res), dim=1)
         
         if self.self_condition: # could use 0.5 probability of using self-condition?
             x_self_cond = default(x_self_cond, lambda: torch.zeros_like(input_x))

@@ -18,9 +18,7 @@ export LD_LIBRARY_PATH=/share/apps/python-3.9.5-shared/lib:$LD_LIBRARY_PATH
 source CriDiff_env/bin/activate
 export PATH="CriDiff_env/bin:$PATH"
 
-cd diffusion_IQT
-
-
+cd diffusion_attn
 python3 train.py --use_T2W --results_folder './pretrain_down4' --down 4
 
 date
