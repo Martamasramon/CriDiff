@@ -4,11 +4,11 @@ from functools  import partial
 import numpy    as np
 
 import os
-from network_utils   import *
-from network_modules import *  
-from ControlNet      import ControlNet
+from network_utils      import *
+from network_modules_3d import *  
+from ControlNet         import ControlNet
 
-class UNet_Basic(nn.Module):
+class UNet_3D(nn.Module):
     def __init__(
         self,
         dim             = 64,
@@ -53,7 +53,7 @@ class UNet_Basic(nn.Module):
             self.time_dim = None
             self.time_mlp = None
 
-        self.init_conv          = nn.Conv2d(input_channels, dim, 7, padding = 3)
+        self.init_conv          = nn.Conv3d(input_channels, dim, 7, padding = 3)
         self.downs_label_noise  = nn.ModuleList([])
         self.ups                = nn.ModuleList([])
 
@@ -67,7 +67,7 @@ class UNet_Basic(nn.Module):
                 self.block_klass(dim_in, dim_in, time_emb_dim = self.time_dim),
                 self.block_klass(dim_in, dim_in, time_emb_dim = self.time_dim),
 
-                Downsample(dim_in, dim_out) if not is_last else nn.Conv2d(dim_in, dim_out, 3, padding = 1)
+                Downsample(dim_in, dim_out) if not is_last else nn.Conv3d(dim_in, dim_out, 3, padding = 1)
             ]))
 
         # ---- MID ---- #
@@ -85,13 +85,13 @@ class UNet_Basic(nn.Module):
                 self.block_klass(dim_in*3, dim_in, time_emb_dim = self.time_dim) if ind < 3 else self.block_klass(dim_in*2, dim_in, time_emb_dim = self.time_dim),
                 self.block_klass(dim_in*2, dim_in, time_emb_dim = self.time_dim),
                 
-                Upsample(dim_in, dim_in) if not is_last else  nn.Conv2d(dim_in, dim_in, 3, padding = 1)
+                Upsample(dim_in, dim_in) if not is_last else  nn.Conv3d(dim_in, dim_in, 3, padding = 1)
             ]))
 
         # ---- FINAL ---- #
         self.final_res_block = self.block_klass(dim, dim, time_emb_dim = self.time_dim)
         self.final_conv      = nn.Sequential(
-            nn.Conv2d(dim, self.mask_channels, 1),
+            nn.Conv3d(dim, self.mask_channels, 1),
         )
 
 

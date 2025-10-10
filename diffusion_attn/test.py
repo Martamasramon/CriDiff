@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 
 import sys
 sys.path.append('../models')
-from Diffusion_Attn import Diffusion_Attn
+from Diffusion      import Diffusion
 from UNet_Attn      import UNet_Attn
 from network_utils  import *
 
@@ -31,10 +31,9 @@ def main():
         dim_mults       = tuple(args.dim_mults),
         self_condition  = args.self_condition,
         use_T2W         = args.use_T2W,
-        use_histo       = args.use_histo,
     )
     
-    diffusion = Diffusion_Attn(
+    diffusion = Diffusion(
         model,
         image_size          = args.img_size,
         timesteps           = args.timesteps,
@@ -56,11 +55,11 @@ def main():
     print('Loading data...')
     dataset     = MyDataset(
         folder, 
-        args.img_size, 
         data_type       = 'val', 
+        image_size      = args.img_size, 
         is_finetune     = args.finetune,
+        use_mask        = args.use_mask,
         t2w_embed       = args.use_T2W, 
-        use_mask        = args.use_mask, 
         downsample      = args.down
     ) 
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
@@ -72,7 +71,7 @@ def main():
     visualize_batch(diffusion, dataloader, args.batch_size, device, output_name=f'{save_name}_{test_data}', use_T2W=args.use_T2W)
     
     print('Evaluating...')
-    evaluate_results(diffusion, dataloader, device, args.batch_size, t2w=args.use_T2W)
+    evaluate_results(diffusion, dataloader, device, args.batch_size, use_T2W=args.use_T2W)
    
     
     

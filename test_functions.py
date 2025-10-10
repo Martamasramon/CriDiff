@@ -29,10 +29,10 @@ def evaluate_results(diffusion, dataloader, device, batch_size, use_T2W=False):
         
         if use_T2W:
             try:
-                t2w_input = batch['T2W'].to(device)
-            except:
-                t2w_input = [np.squeeze(i).to(device) for i in batch['T2W']]
+                t2w_input = [np.squeeze(i).to(device) for i in batch['T2W_embed']]
                 t2w_input = (t2w_input[0].unsqueeze(1), t2w_input[1], t2w_input[2], t2w_input[3])
+            except:
+                t2w_input = batch['T2W'].to(device)
                 
             with torch.no_grad():
                 pred = diffusion.sample(lowres, batch_size=lowres.shape[0], t2w=t2w_input)
@@ -82,12 +82,12 @@ def visualize_batch(diffusion, dataloader, batch_size, device, use_T2W=False, ou
     if diffusion is not None:
         if use_T2W:
             try:
-                t2w_input = batch['T2W'].to(device)
-                t2w_image = True
-            except:
-                t2w_input = [np.squeeze(i).to(device) for i in batch['T2W']]
+                t2w_input = [np.squeeze(i).to(device) for i in batch['T2W_embed']]
                 t2w_input = (t2w_input[0].unsqueeze(1), t2w_input[1], t2w_input[2], t2w_input[3])
                 t2w_image = False
+            except:
+                t2w_input = batch['T2W'].to(device)
+                t2w_image = True
 
             with torch.no_grad():
                 pred  = diffusion.sample(lowres, batch_size=lowres.shape[0], t2w=t2w_input)

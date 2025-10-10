@@ -14,12 +14,13 @@ class MyDataset(Dataset):
     def __init__(
         self,
         img_path,
+        data_type       = None, 
+        blank_prob      = 0,
         image_size      = 64,
         t2w             = False, 
         t2w_embed       = False, 
         is_finetune     = False, 
         surgical_only   = False,
-        data_type       = None, 
         t2w_model_drop  = [0.1,0.5],
         t2w_model_path  = '/cluster/project7/ProsRegNet_CellCount/UNet/checkpoints/default_64.pth',
         use_mask        = False, 
@@ -37,6 +38,8 @@ class MyDataset(Dataset):
         self.image_size = image_size
         self.t2w_embed  = t2w_embed
         self.use_T2W    = t2w or t2w_embed
+        self.data_type  = data_type
+        self.blank_prob = blank_prob
         
         self.low_res_transform = T.Compose([
             T.CenterCrop(image_size),
@@ -80,7 +83,11 @@ class MyDataset(Dataset):
         
         sample['LowRes']  = self.low_res_transform(img)
         sample['HighRes'] = self.high_res_transform(img)
-    
+        
+        #### Force T2W usage by sometimes deleting DWI input
+        if self.data_type == 'train':
+            if torch.rand(()) < self.blank_prob:
+                sample['LowRes'] = torch.zeros_like(sample['LowRes'])
 
         return sample
     

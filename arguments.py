@@ -17,6 +17,7 @@ parser.add_argument('--batch_size',         type=int,  default=16)
 parser.add_argument('--lr',                 type=float,default=8e-5)
 parser.add_argument('--n_epochs',           type=int,  default=40000)
 parser.add_argument('--ema_decay',          type=float,default=0.995)
+parser.add_argument('--blank_prob',         type=float,default=0)
 # Log process
 parser.add_argument('--save_every',         type=int,  default=2000)
 parser.add_argument('--sample_every',       type=int,  default=2000)
@@ -30,6 +31,7 @@ parser.add_argument('--use_mask',           action='store_true')
 parser.add_argument('--surgical_only',      action='store_true')
 parser.add_argument('--finetune',           action='store_true') # Use HistoMRI dataset
 parser.add_argument('--controlnet',         action='store_true') 
+
 parser.set_defaults(use_T2W       = False)
 parser.set_defaults(use_histo     = False)
 parser.set_defaults(use_mask      = False)

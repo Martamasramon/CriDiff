@@ -49,6 +49,7 @@ def main():
     train_dataset = MyDataset(
         folder, 
         data_type       = 'train', 
+        blank_prob      = args.blank_prob,
         image_size      = args.img_size, 
         is_finetune     = args.finetune, 
         use_mask        = args.use_mask, 

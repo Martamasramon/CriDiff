@@ -20,7 +20,7 @@ class UNet_Attn(UNet_Basic):
         self.use_T2W   = use_T2W
 
         ### Redefine these layers
-        self.down_projs  = nn.ModuleList([])
+        self.downs_label_noise  = nn.ModuleList([])
         self.ups                = nn.ModuleList([])
         
         # Figure out size of context vectors for cross attention
@@ -35,7 +35,7 @@ class UNet_Attn(UNet_Basic):
         for ind, (dim_in, dim_out) in enumerate(self.in_out_mask):
             is_last = ind >= (self.num_resolutions - 1)
             
-            self.down_projs.append(nn.ModuleList([
+            self.downs_label_noise.append(nn.ModuleList([
                 self.block_klass(dim_in, dim_in, time_emb_dim = self.time_dim),
                 self.block_klass(dim_in, dim_in, time_emb_dim = self.time_dim),
                 Residual(PreNorm(dim_in, LinearCrossAttention(dim_in, context_in=context_channels[ind]))), ## <---- not in basic
@@ -70,13 +70,13 @@ class UNet_Attn(UNet_Basic):
         t = self.time_mlp(time) if exists(self.time_mlp) else None
         
         label_noise_side = []
-        for i, (convnext, convnext2, cross_attention, downsample) in enumerate(self.down_projs):
+        for i, (convnext, convnext2, cross_attention, downsample) in enumerate(self.downs_label_noise):
             x = convnext(x, t)
             label_noise_side.append(x)
             x = convnext2(x, t)
             
             if self.use_T2W:
-                context     = t2w[i]
+                context = t2w[i]
     
             x = cross_attention(x, context)
             label_noise_side.append(x)
