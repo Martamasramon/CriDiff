@@ -56,10 +56,15 @@ def format_image(tensor):
     return tensor.squeeze().detach().cpu().numpy()
 
 
-def plot_image(image, fig, axes, i, j, colorbar=True):
-    image  = format_image(image)
-            
-    img_plot = axes[i, j].imshow(image,  cmap='gray', vmin=0, vmax=1)
+def plot_image(image, fig, axes, i, j, colorbar=True, std=False):
+    try:
+        image  = format_image(image)
+    except:
+        pass
+       
+    vmax = 0.5 if std else 1
+    img_plot = axes[i, j].imshow(image,  cmap='gray', vmin=0, vmax=vmax)
+                                     
     axes[i, j].axis('off')
     if colorbar:
         fig.colorbar(img_plot, ax=axes[i, j])
@@ -125,6 +130,63 @@ def visualize_batch(diffusion, dataloader, batch_size, device, use_T2W=False, ou
 
     fig.tight_layout(pad=0.25)
     save_path = os.path.join('./test_images', output_name+'.jpg')
+    plt.savefig(save_path)
+    plt.close()
+    print(f"Saved visualization to {save_path}")
+
+ 
+def visualize_variability(diffusion, dataloader, batch_size, device, use_T2W=False, output_name="test_image", num_rep=5, avg_std=True):
+    ncols = 3+num_rep if use_T2W else 2+num_rep
+    ncols = ncols+2 if avg_std else ncols
+    fig, axes = plt.subplots(nrows=batch_size, ncols=ncols, figsize=(3*ncols,3*batch_size))
+    
+    s = 1 if use_T2W else 0
+    if use_T2W:
+        axes[0,0].set_title('High res T2W')        
+    axes[0,s].set_title('Low res (Input)')
+    axes[0,s+1].set_title('High res (Ground truth)')
+    for i in range(num_rep):
+        axes[0,i+s+2].set_title(f'Super resolution ({i+1})') 
+    if avg_std:
+        axes[0,ncols-2].set_title('Average Output')
+        axes[0,ncols-1].set_title('Std Output')
+    
+    # Get images 
+    batch   = next(iter(dataloader))
+    highres = batch['HighRes'].to(device)
+    lowres  = batch['LowRes'].to(device)
+    
+    all_pred = []
+    for rep in range(num_rep):
+        if use_T2W:
+            # Ignoring embedding for injection models
+            t2w_input = batch['T2W'].to(device)
+            with torch.no_grad():
+                pred  = diffusion.sample(lowres, batch_size=lowres.shape[0], t2w=t2w_input)
+        else:
+            with torch.no_grad():
+                pred  = diffusion.sample(lowres, batch_size=lowres.shape[0])
+        all_pred.append(format_image(pred))
+        
+    all_pred  = np.array(all_pred)
+    if avg_std:
+        mean_pred = np.mean(all_pred, axis=0)                 
+        std_pred  = np.std(all_pred, axis=0)
+
+    for i in range(batch_size):
+        # Plot images
+        if use_T2W:
+            plot_image(t2w_input[i], fig, axes, i, 0)
+        plot_image(lowres[i],  fig, axes, i, s)
+        plot_image(highres[i], fig, axes, i, s+1)
+        for rep in range(num_rep):
+            plot_image(all_pred[rep][i], fig, axes, i, rep+s+2)
+        if avg_std:
+            plot_image(mean_pred[i], fig, axes, i, ncols-2)
+            plot_image(std_pred[i],  fig, axes, i, ncols-1, std=True)
+
+    fig.tight_layout(pad=0.25)
+    save_path = os.path.join('./test_images', output_name+'_variability.jpg')
     plt.savefig(save_path)
     plt.close()
     print(f"Saved visualization to {save_path}")

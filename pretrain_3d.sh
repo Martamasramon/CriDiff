@@ -20,6 +20,6 @@ export PATH="CriDiff_env/bin:$PATH"
 
 cd diffusion_basic
 
-python3 train.py --results_folder './concat_down8_mask' --down 8 --use_T2W --use_mask
+python3 train3d.py --results_folder './pretrain_3d'
 
 date
