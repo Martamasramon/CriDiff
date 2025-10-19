@@ -35,7 +35,7 @@ python3 test.py --checkpoint './concat_down4_prob03/model-best.pt' --use_T2W --d
 python3 test.py --checkpoint './concat_down8/model-best.pt' --use_T2W --down 8
 python3 test.py --checkpoint './concat_down8_prob02/model-best.pt' --use_T2W --down 8
 
-python3 test.py --checkpoint './pretrain_down8_mask/model-best.pt' --down 8 --use_mask
+python3 test.py --checkpoint './concat_down8_mask/model-best.pt' --down 8 --use_mask --use_T2W
 
 date
 
