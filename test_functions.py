@@ -21,31 +21,55 @@ def compute_metrics(pred, gt):
     ssim = ssim_metric(gt_np, pred_np, data_range=1.0)
     return mse, psnr, ssim
 
+def adapt_input_dims(batch):
+    try:
+        batch_squeezed   = [np.squeeze(i) for i in batch['T2W_embed']]
+        batch_final_dims = (batch_squeezed[0].unsqueeze(1), batch_squeezed[1], batch_squeezed[2], batch_squeezed[3])
+    except:
+        batch_final_dims = batch['T2W_condition']
+    
+    return batch_final_dims
+
+def to_device(t2w_input, device):
+    try:
+        t2w_input = t2w_input.to(device)
+    except:
+        t2w_input = [i.to(device) for i in t2w_input]
+    return  t2w_input
+ 
+def add_batch_metrics_to_list(prediction, highres, mse_list, psnr_list, ssim_list):
+    for j in range(prediction.size(0)):
+        mse, psnr, ssim = compute_metrics(prediction[j], highres[j])
+        mse_list.append(mse)
+        psnr_list.append(psnr)
+        ssim_list.append(ssim)
+    return mse_list, psnr_list, ssim_list
+
+def run_diffusion_with_t2w(batch, device, diffusion, lowres):
+    t2w_input     = adapt_input_dims(batch)
+    t2w_input_gpu = to_device(t2w_input, device)
+    
+    with torch.no_grad():
+        return diffusion.sample(lowres, batch_size=lowres.shape[0], t2w=t2w_input_gpu)
+                
+def run_diffusion_without_t2w(batch, device, diffusion, lowres):
+    with torch.no_grad():
+        return diffusion.sample(lowres, batch_size=lowres.shape[0])
+        
 def evaluate_results(diffusion, dataloader, device, batch_size, use_T2W=False):
     mse_list, psnr_list, ssim_list = [], [], []
+    
     for batch in dataloader:
-        highres   = batch['HighRes'].to(device)
-        lowres    = batch['LowRes'].to(device)
+        highres   = batch['ADC_input'].to(device)
+        lowres    = batch['ADC_condition'].to(device)
         
         if use_T2W:
-            try:
-                t2w_input = [np.squeeze(i).to(device) for i in batch['T2W_embed']]
-                t2w_input = (t2w_input[0].unsqueeze(1), t2w_input[1], t2w_input[2], t2w_input[3])
-            except:
-                t2w_input = batch['T2W'].to(device)
-                
-            with torch.no_grad():
-                pred = diffusion.sample(lowres, batch_size=lowres.shape[0], t2w=t2w_input)
+            prediction = run_diffusion_with_t2w(batch, device, diffusion, lowres)
         else:
-            with torch.no_grad():
-                pred = diffusion.sample(lowres, batch_size=lowres.shape[0])
+            prediction = run_diffusion_without_t2w(batch, device, diffusion, lowres)
         
-        for j in range(pred.size(0)):
-            mse, psnr, ssim = compute_metrics(pred[j], highres[j])
-            mse_list.append(mse)
-            psnr_list.append(psnr)
-            ssim_list.append(ssim)
-
+        mse_list, psnr_list, ssim_list = add_batch_metrics_to_list(prediction, highres, mse_list, psnr_list, ssim_list)
+        
     print(f'Average MSE:  {np.mean(mse_list):.6f}')
     print(f'Average PSNR: {np.mean(psnr_list):.2f}')
     print(f'Average SSIM: {np.mean(ssim_list):.4f}')
@@ -81,8 +105,8 @@ def visualize_batch(diffusion, dataloader, batch_size, device, use_T2W=False, ou
         
     # Get images 
     batch   = next(iter(dataloader))
-    highres = batch['HighRes'].to(device)
-    lowres  = batch['LowRes'].to(device)
+    highres = batch['ADC_input'].to(device)
+    lowres  = batch['ADC_condition'].to(device)
     
     if diffusion is not None:
         if use_T2W:
@@ -91,7 +115,7 @@ def visualize_batch(diffusion, dataloader, batch_size, device, use_T2W=False, ou
                 t2w_input = (t2w_input[0].unsqueeze(1), t2w_input[1], t2w_input[2], t2w_input[3])
                 t2w_image = False
             except:
-                t2w_input = batch['T2W'].to(device)
+                t2w_input = batch['T2W_condition'].to(device)
                 t2w_image = True
 
             with torch.no_grad():
@@ -100,7 +124,7 @@ def visualize_batch(diffusion, dataloader, batch_size, device, use_T2W=False, ou
             with torch.no_grad():
                 pred  = diffusion.sample(lowres, batch_size=lowres.shape[0])
     else:
-        lowres    = batch['LowRes']
+        lowres    = batch['ADC_condition']
         full_size = lowres.shape[-1]
         for i in range(batch_size):
             lowres[i] = cv2.resize(lowres[i], (full_size//2,full_size//2))
@@ -153,14 +177,14 @@ def visualize_variability(diffusion, dataloader, batch_size, device, use_T2W=Fal
     
     # Get images 
     batch   = next(iter(dataloader))
-    highres = batch['HighRes'].to(device)
-    lowres  = batch['LowRes'].to(device)
+    highres = batch['ADC_input'].to(device)
+    lowres  = batch['ADC_condition'].to(device)
     
     all_pred = []
     for rep in range(num_rep):
         if use_T2W:
             # Ignoring embedding for injection models
-            t2w_input = batch['T2W'].to(device)
+            t2w_input = batch['T2W_condition'].to(device)
             with torch.no_grad():
                 pred  = diffusion.sample(lowres, batch_size=lowres.shape[0], t2w=t2w_input)
         else:

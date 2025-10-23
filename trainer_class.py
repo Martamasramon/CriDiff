@@ -156,14 +156,14 @@ class Trainer(object):
                     data[key] = [i.to(self.accelerator.device) for i in value]
                      
             with self.accelerator.autocast():
-                control = data['T2W'] if self.model.controlnet else None
-                t2w_in  = data['T2W'] if self.use_t2w else None
+                control = data['T2W_condition'] if self.model.controlnet else None
+                t2w_in  = data['T2W_condition'] if self.use_t2w else None
                 
                 if self.use_t2w_embed:
                     data['T2W_embed'] = [t.squeeze(1) for t in data['T2W_embed']]
-                    loss, mse, perct, ssim = self.model(data['HighRes'], data['LowRes'], t2w=data['T2W_embed'])
+                    loss, mse, perct, ssim = self.model(data['ADC_input'], data['ADC_condition'], t2w=data['T2W_embed'])
                 else:
-                    loss, mse, perct, ssim = self.model(data['HighRes'], data['LowRes'], control=control, t2w=t2w_in)
+                    loss, mse, perct, ssim = self.model(data['ADC_input'], data['ADC_condition'], control=control, t2w=t2w_in)
                 
                 total_loss   += loss.item()  / self.gradient_accumulate_every
                 total_mse    += mse.item()   / self.gradient_accumulate_every
@@ -182,8 +182,8 @@ class Trainer(object):
         with torch.no_grad():
             milestone       = self.step // self.sample_every
             batches         = num_to_groups(self.num_samples, self.batch_size)
-            sample_lowres   = data['LowRes'][:self.num_samples].to(self.accelerator.device)
-            sample_t2w      = data['T2W'][:self.num_samples].to(self.accelerator.device) if self.model.controlnet | self.model.concat_t2w else None
+            sample_lowres   = data['ADC_condition'][:self.num_samples].to(self.accelerator.device)
+            sample_t2w      = data['T2W_condition'][:self.num_samples].to(self.accelerator.device) if self.model.controlnet | self.model.concat_t2w else None
             if 'T2W_embed' in data:
                 sample_t2w_embed = []
                 for i in range(4):

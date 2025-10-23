@@ -85,28 +85,95 @@ def _pre(arr):
     t = normalize_volume01(t)
     return t
 
-def get_transforms(dims, image_size, downsample):
-    if dims == 2:
-        low_res_transform = T.Compose([
-            T.CenterCrop(image_size),
-            T.Resize(image_size//downsample, interpolation=T.InterpolationMode.NEAREST),
-            T.Resize(image_size,             interpolation=T.InterpolationMode.NEAREST),
+
+class Transforms():
+    def __init__(
+        self,
+        adc_size,
+        downsample
+    ):
+        self.adc_size   = adc_size
+        self.downsample = downsample
+    
+    def get_lowres(self):
+        return T.Compose([
+            T.CenterCrop(self.adc_size),
+            T.Resize(self.adc_size//self.downsample, interpolation=T.InterpolationMode.NEAREST),
+            T.Resize(self.adc_size,             interpolation=T.InterpolationMode.NEAREST),
             T.Lambda(lambda img: torch.tensor(np.array(img), dtype=torch.float32).unsqueeze(0) / 255) #T.ToTensor(), 255???
         ])
-        
-        high_res_transform = T.Compose([
-            T.CenterCrop(image_size),
+    def get_highres(self):
+        return T.Compose([
+            T.CenterCrop(self.adc_size),
             T.Lambda(lambda img: torch.tensor(np.array(img), dtype=torch.float32).unsqueeze(0) / 255) #T.ToTensor(), 255???
         ]) 
-        
-        t2w_transform = T.Compose([
-            T.CenterCrop(image_size*2),
-            T.Resize(image_size, interpolation=T.InterpolationMode.NEAREST),
+    def get_t2w(self):  
+        return T.Compose([
+            T.CenterCrop(self.adc_size*2),
+            T.Resize(self.adc_size, interpolation=T.InterpolationMode.NEAREST),
             T.ToTensor()
         ]) 
-    else:
-        high_res_transform  = lambda arr: center_crop_3d(_pre(arr), self.image_size)
-        low_res_transform   = lambda arr: make_lowres_from_hr(center_crop_3d(_pre(arr), self.image_size), self.downsample)
-        t2w_transform       = lambda arr: center_crop_3d(_pre(arr), self.image_size)
+    def get_transforms(self):
+        return {
+            'ADC_input'    : self.get_lowres(),
+            'ADC_condition': self.get_highres(),
+            'T2W_condition': self.get_t2w()
+        }
+
+class TransformsUpsample(Transforms):
+    def __init__(self, *args):
+        super().__init__(*args)
+    
+    def get_upsampled_nearest(self):
+        return T.Compose([
+            T.CenterCrop(self.adc_size),
+            T.Resize(self.adc_size * self.downsample, interpolation=T.InterpolationMode.NEAREST),
+            T.Lambda(lambda img: torch.tensor(np.array(img), dtype=torch.float32).unsqueeze(0) / 255) #T.ToTensor(), 255???
+        ])
+    def get_upsampled_bicubic(self):
+        return T.Compose([
+            T.CenterCrop(self.adc_size),
+            T.Resize(self.adc_size * self.downsample, interpolation=T.InterpolationMode.BICUBIC),
+            T.Lambda(lambda img: torch.tensor(np.array(img), dtype=torch.float32).unsqueeze(0) / 255) #T.ToTensor(), 255???
+        ]) 
+    def get_t2w(self):  
+        return T.Compose([
+            T.CenterCrop(self.adc_size * self.downsample),
+            T.ToTensor()
+        ]) 
+    def get_adc(self):  
+        return T.Compose([
+            T.CenterCrop(self.adc_size),
+            T.ToTensor()
+        ]) 
+    def downsample_output(self):  
+        return T.Compose([
+            T.Resize(self.adc_size, interpolation=T.InterpolationMode.BICUBIC),
+        ]) 
+    def get_transforms(self):
+        return {
+            'ADC_input'    : self.get_upsampled_cubic(),
+            'ADC_condition': self.get_upsampled_nearest(),
+            'T2W_condition': self.get_t2w(),
+            'ADC_target'   : self.get_adc(),
+            'ADC_prediction':self.downsample_output()
+        }
         
-    return low_res_transform, high_res_transform,t2w_transform
+class Transforms3D(Transforms):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def get_lowres(self):
+        return lambda arr: center_crop_3d(_pre(arr), self.image_size)
+    def get_highres(self):
+        return lambda arr: make_lowres_from_hr(center_crop_3d(_pre(arr), self.image_size), self.downsample)
+    def get_t2w(self):  
+        return lambda arr: center_crop_3d(_pre(arr), self.image_size)
+
+def get_transforms(dims, image_size, downsample, upsample=False):
+    if dims == 2:
+        transform = TransformsUpsample(image_size, downsample) if upsample else Transforms(image_size, downsample)
+    else:
+        transform = Transforms3D(image_size, downsample)
+        
+    return transform.get_transforms()
