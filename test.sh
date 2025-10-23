@@ -15,8 +15,8 @@ nvidia-smi
 export PATH=/share/apps/python-3.9.5-shared/bin:$PATH
 export LD_LIBRARY_PATH=/share/apps/python-3.9.5-shared/lib:$LD_LIBRARY_PATH
 
-source CriDiff_env/bin/activate
-export PATH="CriDiff_env/bin:$PATH"
+source /cluster/project7/ProsRegNet_CellCount/CriDiff/CriDiff_env/bin/activate
+export PATH="/cluster/project7/ProsRegNet_CellCount/CriDiff/CriDiff_env/bin:$PATH"
 
 cd diffusion_attn
 python3 test.py --checkpoint './pretrain/model-best.pt'  --use_T2W --save_name 'pretrain_blank_t2w'

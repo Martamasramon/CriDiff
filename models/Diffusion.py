@@ -280,7 +280,18 @@ class Diffusion(nn.Module):
                 extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise)
 
 
-    def p_losses(self, x_start, low_res, t, control=None, t2w=None, noise = None, offset_noise_strength = None):
+    def p_losses(self, 
+                x_start, 
+                low_res, 
+                t, 
+                control, 
+                t2w, 
+                defined_target,             
+                eval_transform,
+                noise   = None, 
+                offset_noise_strength = None,
+                 
+        ):
         b, c, h, w              = x_start.shape
         noise                   = default(noise, lambda: torch.randn_like(x_start))
         offset_noise_strength   = default(offset_noise_strength, self.offset_noise_strength)         # offset noise - https://www.crosslabs.org/blog/diffusion-with-offset-noise
@@ -307,16 +318,20 @@ class Diffusion(nn.Module):
         elif self.objective == 'pred_x0':
             target = x_start  # Predict high-res directly
         elif self.objective == 'pred_v':
-            v = self.predict_v(x_start, t, noise)
-            target = v
+            target = self.predict_v(x_start, t, noise)
         else:
             raise ValueError(f'unknown objective {self.objective}')
             
         mse_loss = F.mse_loss(model_out, target, reduction = 'none')
         mse_loss = reduce(mse_loss, 'b ... -> b', 'mean')
         
-        x_out       = self.unnormalize(model_out)  
-        x_target    = self.unnormalize(target)     
+        x_out = self.unnormalize(model_out) 
+        if eval_transform is not None:                                    
+            x_out     = eval_transform(x_out)                               
+            x_target  = defined_target       
+        else:
+            x_target  = self.unnormalize(target)  
+         
         perct_loss  = self.perct_loss(x_out.clamp(0.0, 1.0), x_target.clamp(0.0, 1.0))
         
         with torch.no_grad():
@@ -328,9 +343,18 @@ class Diffusion(nn.Module):
         return loss.mean(), mse_loss.mean(), perct_loss.mean(), ssim_val.mean()
 
 
-    def forward(self, img, low_res, control=None, t2w=None, *args, **kwargs):
+    def forward(self, 
+                img, 
+                low_res, 
+                control = None, 
+                t2w     = None, 
+                defined_target = None,             
+                eval_transform = None,
+                *args, 
+                **kwargs
+        ):
         b, c, h, w, device, img_size, = *img.shape, img.device, self.image_size
         assert h == img_size and w == img_size, f'height and width of image must be {img_size}'
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
         
-        return self.p_losses(self.normalize(img),  low_res, t, control=control, t2w=t2w, *args, **kwargs)
+        return self.p_losses(self.normalize(img),  low_res, t, control, t2w, defined_target, eval_transform, *args, **kwargs)

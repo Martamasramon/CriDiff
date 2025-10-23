@@ -113,7 +113,7 @@ class Transforms():
             T.Resize(self.adc_size, interpolation=T.InterpolationMode.NEAREST),
             T.ToTensor()
         ]) 
-    def get_transforms(self):
+    def get_all_transforms(self):
         return {
             'ADC_input'    : self.get_lowres(),
             'ADC_condition': self.get_highres(),
@@ -146,17 +146,12 @@ class TransformsUpsample(Transforms):
             T.CenterCrop(self.adc_size),
             T.ToTensor()
         ]) 
-    def downsample_output(self):  
-        return T.Compose([
-            T.Resize(self.adc_size, interpolation=T.InterpolationMode.BICUBIC),
-        ]) 
-    def get_transforms(self):
+    def get_all_transforms(self):
         return {
-            'ADC_input'    : self.get_upsampled_cubic(),
+            'ADC_input'    : self.get_upsampled_bicubic(),
             'ADC_condition': self.get_upsampled_nearest(),
             'T2W_condition': self.get_t2w(),
             'ADC_target'   : self.get_adc(),
-            'ADC_prediction':self.downsample_output()
         }
         
 class Transforms3D(Transforms):
@@ -176,4 +171,9 @@ def get_transforms(dims, image_size, downsample, upsample=False):
     else:
         transform = Transforms3D(image_size, downsample)
         
-    return transform.get_transforms()
+    return transform.get_all_transforms()
+
+def downsample_transform(size):  
+    return T.Compose([
+        T.Resize(size, interpolation=T.InterpolationMode.BICUBIC),
+    ]) 

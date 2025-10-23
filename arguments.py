@@ -31,6 +31,7 @@ parser.add_argument('--use_mask',           action='store_true')
 parser.add_argument('--surgical_only',      action='store_true')
 parser.add_argument('--finetune',           action='store_true') # Use HistoMRI dataset
 parser.add_argument('--controlnet',         action='store_true') 
+parser.add_argument('--upsample',           action='store_true') 
 
 parser.set_defaults(use_T2W       = False)
 parser.set_defaults(use_histo     = False)
@@ -38,5 +39,6 @@ parser.set_defaults(use_mask      = False)
 parser.set_defaults(surgical_only = False)
 parser.set_defaults(finetune      = False)
 parser.set_defaults(controlnet    = False)
+parser.set_defaults(upsample      = False)
 
 args, unparsed = parser.parse_known_args()

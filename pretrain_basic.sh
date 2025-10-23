@@ -20,6 +20,6 @@ export PATH="CriDiff_env/bin:$PATH"
 
 cd diffusion_basic
 
-python3 train.py --results_folder './concat' --use_T2W 
+python3 train.py --results_folder './test_x4' --use_T2W --upsample --down 4 
 
 date

@@ -3,10 +3,11 @@ import torch
 import os
 import matplotlib.pyplot as plt
 import cv2 
-
+from torchvision     import transforms as T
 from skimage.metrics import structural_similarity   as ssim_metric
 from skimage.metrics import peak_signal_noise_ratio as psnr_metric
 from skimage.metrics import mean_squared_error      as mse_metric
+from transforms import downsample_transform
 
 import sys
 sys.path.append('../models')
@@ -55,20 +56,30 @@ def run_diffusion_with_t2w(batch, device, diffusion, lowres):
 def run_diffusion_without_t2w(batch, device, diffusion, lowres):
     with torch.no_grad():
         return diffusion.sample(lowres, batch_size=lowres.shape[0])
-        
+    
+def get_target_prediction(batch, model_output):
+    if 'ADC_target' in batch.keys():
+        # Check this gets correct dims
+        pred_transform  = downsample_transform(batch['ADC_target'].shape[1])
+        return batch['ADC_target'], pred_transform(model_output)
+    else:
+        return batch['ADC_input'], model_output
+    
 def evaluate_results(diffusion, dataloader, device, batch_size, use_T2W=False):
     mse_list, psnr_list, ssim_list = [], [], []
     
     for batch in dataloader:
-        highres   = batch['ADC_input'].to(device)
-        lowres    = batch['ADC_condition'].to(device)
+        adc_condition = batch['ADC_condition'].to(device)
         
         if use_T2W:
-            prediction = run_diffusion_with_t2w(batch, device, diffusion, lowres)
+            model_output = run_diffusion_with_t2w(batch, device, diffusion, adc_condition)
         else:
-            prediction = run_diffusion_without_t2w(batch, device, diffusion, lowres)
-        
-        mse_list, psnr_list, ssim_list = add_batch_metrics_to_list(prediction, highres, mse_list, psnr_list, ssim_list)
+            model_output = run_diffusion_without_t2w(batch, device, diffusion, adc_condition)
+            
+        target, prediction = get_target_prediction(batch, model_output)
+        target = target.to(device)
+
+        mse_list, psnr_list, ssim_list = add_batch_metrics_to_list(prediction, target, mse_list, psnr_list, ssim_list)
         
     print(f'Average MSE:  {np.mean(mse_list):.6f}')
     print(f'Average PSNR: {np.mean(psnr_list):.2f}')

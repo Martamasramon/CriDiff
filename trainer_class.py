@@ -21,7 +21,7 @@ from network_utils   import *
 from network_modules import *
 
 from ema_pytorch import EMA
-
+from transforms import downsample_transform
 
 class Trainer(object):
     def __init__(
@@ -34,6 +34,7 @@ class Trainer(object):
         use_t2w                     = False,
         use_t2w_embed               = False,
         batch_size                  = 16,
+        img_size                    = 64,
         gradient_accumulate_every   = 1,
         lr                          = 1e-4,
         train_num_steps             = 100000,
@@ -60,6 +61,7 @@ class Trainer(object):
         
         self.use_t2w        = use_t2w
         self.use_t2w_embed  = use_t2w_embed
+        self.img_size       = img_size
         
         # sampling and training hyperparameters
         assert has_int_squareroot(num_samples), 'number of samples must have an integer square root'
@@ -158,12 +160,17 @@ class Trainer(object):
             with self.accelerator.autocast():
                 control = data['T2W_condition'] if self.model.controlnet else None
                 t2w_in  = data['T2W_condition'] if self.use_t2w else None
+                if 'ADC_target' in data.keys():
+                    defined_target = data['ADC_target'] 
+                    eval_transform = downsample_transform(self.img_size) 
+                else:
+                    defined_target, eval_transform = None, None
                 
                 if self.use_t2w_embed:
                     data['T2W_embed'] = [t.squeeze(1) for t in data['T2W_embed']]
-                    loss, mse, perct, ssim = self.model(data['ADC_input'], data['ADC_condition'], t2w=data['T2W_embed'])
+                    loss, mse, perct, ssim = self.model(data['ADC_input'], data['ADC_condition'], control, data['T2W_embed'], defined_target, eval_transform)
                 else:
-                    loss, mse, perct, ssim = self.model(data['ADC_input'], data['ADC_condition'], control=control, t2w=t2w_in)
+                    loss, mse, perct, ssim = self.model(data['ADC_input'], data['ADC_condition'], control, t2w_in,            defined_target, eval_transform)
                 
                 total_loss   += loss.item()  / self.gradient_accumulate_every
                 total_mse    += mse.item()   / self.gradient_accumulate_every

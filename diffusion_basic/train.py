@@ -23,22 +23,23 @@ os.environ['CUDA_VISIBLE_DEVICES']='0,1'
 
 def main():
     accelerator = Accelerator(split_batches=True, mixed_precision='no')
-
+    img_size = args.img_size if not args.upsample else args.img_size*args.down
+    
     model = UNet_Basic(
-        dim             = args.img_size,
+        dim             = img_size,
         dim_mults       = tuple(args.dim_mults),
         self_condition  = args.self_condition,
         controlnet      = args.controlnet,
-        concat_t2w      = args.use_T2W
+        concat_t2w      = args.use_T2W,
     )
     
     diffusion = Diffusion(
         model,
-        image_size          = args.img_size,
+        image_size          = img_size,
         timesteps           = args.timesteps,
         sampling_timesteps  = args.sampling_timesteps,
         beta_schedule       = args.beta_schedule,
-        perct_λ             = args.perct_λ
+        perct_λ             = args.perct_λ,
     )
     
     if args.checkpoint:
@@ -54,7 +55,8 @@ def main():
         is_finetune     = args.finetune, 
         use_mask        = args.use_mask, 
         downsample      = args.down,
-        t2w             = args.controlnet | args.use_T2W
+        t2w             = args.controlnet | args.use_T2W,
+        upsample        = args.upsample,
     ) 
     test_dataset = MyDataset(
         folder, 
@@ -63,7 +65,8 @@ def main():
         is_finetune     = args.finetune, 
         use_mask        = args.use_mask, 
         downsample      = args.down,
-        t2w             = args.controlnet | args.use_T2W
+        t2w             = args.controlnet | args.use_T2W,
+        upsample        = args.upsample,
     ) 
     train_dataloader = DataLoader(train_dataset, batch_size = args.batch_size, shuffle=True)
     test_dataloader  = DataLoader(test_dataset,  batch_size = args.batch_size, shuffle=False)

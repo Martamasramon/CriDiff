@@ -25,8 +25,9 @@ class MyDataset(Dataset):
         t2w_model_path  = '/cluster/project7/ProsRegNet_CellCount/UNet/checkpoints/default_64.pth',
         use_mask        = False, 
         downsample      = 2,
+        upsample        = False,
     ):
-        super().__init__() ## Necessary? Not in other...
+        super().__init__()
         
         root   = 'finetune' if is_finetune else 'pretrain'
         if surgical_only:
@@ -34,14 +35,14 @@ class MyDataset(Dataset):
         
         self.masked     = '_mask' if use_mask else ''
         self.img_path   = img_path + 'HistoMRI/target_adc' if is_finetune else img_path + 'PICAI' 
-        self.img_dict   = pd.read_csv(f'/cluster/project7/ProsRegNet_CellCount/Dataset_preparation/CSV/{root}{self.masked}_{data_type}.csv')
+        self.upsample   = 'x4' if upsample else ''
+        self.img_dict   = pd.read_csv(f'/cluster/project7/ProsRegNet_CellCount/Dataset_preparation/CSV/{root}{self.upsample}{self.masked}_{data_type}.csv')
         self.t2w_embed  = t2w_embed
         self.use_T2W    = t2w or t2w_embed
         self.data_type  = data_type
         self.blank_prob = blank_prob
-        self.transforms = get_transforms(2, image_size, downsample)
+        self.transforms = get_transforms(2, image_size, downsample, upsample)
             
-        print(self.transforms)
         if self.t2w_embed:
             # Load pre-trained T2W embedding model
             self.t2w_model = RUNet(t2w_model_drop[0], t2w_model_drop[1], img_size=image_size)
@@ -57,7 +58,7 @@ class MyDataset(Dataset):
         sample = {}
         
         if self.use_T2W:
-            t2w           = Image.open(f'{self.img_path}/T2W{self.masked}/{item["SID"]}').convert('L')
+            t2w           = Image.open(f'{self.img_path}/T2W{self.masked}{self.upsample}/{item["SID"]}').convert('L')
             # t2w          = Image.new('L', t2w.size, 0) # Test performance with blank image
             sample['T2W_condition'] = self.transforms['T2W_condition'](t2w)
             
@@ -66,7 +67,9 @@ class MyDataset(Dataset):
         
         sample['ADC_condition'] = self.transforms['ADC_condition'](img)
         sample['ADC_input']     = self.transforms['ADC_input'](img)
-        sample['ADC_target']    = self.transforms['ADC_target'](img) if 'ADC_target' in self.transforms.keys() else sample['ADC_input']
+        
+        if 'ADC_target' in self.transforms.keys():
+            sample['ADC_target']    = self.transforms['ADC_target'](img)  
                     
         #### Force T2W usage by sometimes deleting DWI input
         if self.data_type == 'train' and torch.rand(()) < self.blank_prob:
@@ -93,7 +96,8 @@ class MyDataset3D(MyDataset):
         
         sample['ADC_condition'] = self.transforms['ADC_condition'](img)
         sample['ADC_input']     = self.transforms['ADC_input'](img)
-        sample['ADC_target']    = self.transforms['ADC_target'](img) if 'ADC_target' in self.transforms.keys() else sample['ADC_input']
+        if 'ADC_target' in self.transforms.keys():
+            sample['ADC_target']    = self.transforms['ADC_target'](img)  
 
         #### Force T2W usage by sometimes deleting DWI input
         if self.data_type == 'train' and torch.rand(()) < self.blank_prob:
