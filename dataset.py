@@ -26,6 +26,7 @@ class MyDataset(Dataset):
         use_mask        = False, 
         downsample      = 2,
         upsample        = False,
+        t2w_offset      = None
     ):
         super().__init__()
         
@@ -41,7 +42,10 @@ class MyDataset(Dataset):
         self.use_T2W    = t2w or t2w_embed
         self.data_type  = data_type
         self.blank_prob = blank_prob
-        self.transforms = get_transforms(2, image_size, downsample, upsample)
+        self.transforms = get_transforms(2, image_size, downsample, upsample, t2w_offset)
+            
+        for i in self.transforms:
+            print(i, self.transforms[i])
             
         if self.t2w_embed:
             # Load pre-trained T2W embedding model
@@ -61,6 +65,9 @@ class MyDataset(Dataset):
             t2w           = Image.open(f'{self.img_path}/T2W{self.masked}{self.upsample}/{item["SID"]}').convert('L')
             # t2w          = Image.new('L', t2w.size, 0) # Test performance with blank image
             sample['T2W_condition'] = self.transforms['T2W_condition'](t2w)
+            
+            if self.data_type == 'val':
+                sample['T2W_path'] = f'{self.img_path}/T2W{self.masked}{self.upsample}/{item["SID"]}'
             
         if self.t2w_embed:
             sample['T2W_embed'] = self.t2w_model.get_all_embeddings(sample['T2W_condition'].unsqueeze(0))

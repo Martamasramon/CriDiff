@@ -8,6 +8,7 @@ from skimage.metrics import structural_similarity   as ssim_metric
 from skimage.metrics import peak_signal_noise_ratio as psnr_metric
 from skimage.metrics import mean_squared_error      as mse_metric
 from transforms import downsample_transform
+from PIL import Image
 
 import sys
 sys.path.append('../models')
@@ -101,8 +102,8 @@ def plot_image(image, fig, axes, i, j, colorbar=True, std=False):
     img_plot = axes[i, j].imshow(image,  cmap='gray', vmin=0, vmax=vmax)
                                      
     axes[i, j].axis('off')
-    if colorbar:
-        fig.colorbar(img_plot, ax=axes[i, j])
+    # if colorbar:
+    #     fig.colorbar(img_plot, ax=axes[i, j])
     
 def visualize_batch(diffusion, dataloader, batch_size, device, use_T2W=False, output_name="test_image"):
     ncols = 5 if use_T2W else 4
@@ -170,8 +171,8 @@ def visualize_batch(diffusion, dataloader, batch_size, device, use_T2W=False, ou
     print(f"Saved visualization to {save_path}")
 
  
-def visualize_variability(diffusion, dataloader, batch_size, device, use_T2W=False, output_name="test_image", num_rep=5, avg_std=True):
-    ncols = 3+num_rep if use_T2W else 2+num_rep
+def visualize_variability(diffusion, dataloader, batch_size, device, use_T2W=False, output_name="test_image", num_rep=5, avg_std=False):
+    ncols = 2+2*num_rep if use_T2W else 2+num_rep
     ncols = ncols+2 if avg_std else ncols
     fig, axes = plt.subplots(nrows=batch_size, ncols=ncols, figsize=(3*ncols,3*batch_size))
     
@@ -203,7 +204,7 @@ def visualize_variability(diffusion, dataloader, batch_size, device, use_T2W=Fal
                 pred  = diffusion.sample(lowres, batch_size=lowres.shape[0])
         all_pred.append(format_image(pred))
         
-    all_pred  = np.array(all_pred)
+    all_pred = np.array(all_pred)
     if avg_std:
         mean_pred = np.mean(all_pred, axis=0)                 
         std_pred  = np.std(all_pred, axis=0)
@@ -222,6 +223,67 @@ def visualize_variability(diffusion, dataloader, batch_size, device, use_T2W=Fal
 
     fig.tight_layout(pad=0.25)
     save_path = os.path.join('./test_images', output_name+'_variability.jpg')
+    plt.savefig(save_path)
+    plt.close()
+    print(f"Saved visualization to {save_path}")
+
+ 
+ 
+def visualize_variability_t2w(diffusion, dataloader, batch_size, device, output_name="test_image", num_rep=5, avg_std=False):
+    ncols = 2+2*num_rep
+    ncols = ncols+2 if avg_std else ncols
+    fig, axes = plt.subplots(nrows=batch_size, ncols=ncols, figsize=(3*ncols,3*batch_size))
+    
+    axes[0,0].set_title('Low res (Input)')
+    axes[0,1].set_title('High res (Ground truth)')
+    for i in range(num_rep):
+        axes[0,2+i*2].set_title('High res T2W')    
+        axes[0,3+i*2].set_title(f'Super resolution ({i+1})') 
+    if avg_std:
+        axes[0,ncols-2].set_title('Average Output')
+        axes[0,ncols-1].set_title('Std Output')
+    
+    # Get images 
+    batch   = next(iter(dataloader))
+    highres = batch['ADC_input'].to(device)
+    lowres  = batch['ADC_condition'].to(device)
+    
+    all_pred = []
+    all_t2w  = []
+    
+    t2w_transform = dataloader.dataset.transforms['T2W_condition']  
+    for rep in range(num_rep):
+        t2w_batch = []
+        for p in batch['T2W_path']:
+            t2w_img = Image.open(p).convert('L')
+            t2w_batch.append(t2w_transform(t2w_img))  
+        t2w_input = torch.stack(t2w_batch, dim=0).to(device)
+        
+        with torch.no_grad():
+            pred  = diffusion.sample(lowres, batch_size=lowres.shape[0], t2w=t2w_input)
+    
+        all_pred.append(format_image(pred))
+        all_t2w.append(format_image(t2w_input))
+        
+    all_pred = np.array(all_pred)
+    all_t2w  = np.array(all_t2w)    
+    if avg_std:
+        mean_pred = np.mean(all_pred, axis=0)                 
+        std_pred  = np.std(all_pred, axis=0)
+
+    for i in range(batch_size):
+        # Plot images
+        plot_image(lowres[i],  fig, axes, i, 0)
+        plot_image(highres[i], fig, axes, i, 1)
+        for rep in range(num_rep):
+            plot_image(all_t2w[rep][i], fig, axes, i, 2+rep*2)
+            plot_image(all_pred[rep][i],fig, axes, i, 3+rep*2)
+        if avg_std:
+            plot_image(mean_pred[i], fig, axes, i, ncols-2)
+            plot_image(std_pred[i],  fig, axes, i, ncols-1, std=True)
+
+    fig.tight_layout(pad=0.25)
+    save_path = os.path.join('./test_images', output_name+'_variability_t2w.jpg')
     plt.savefig(save_path)
     plt.close()
     print(f"Saved visualization to {save_path}")

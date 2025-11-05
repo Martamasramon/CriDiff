@@ -56,6 +56,7 @@ def main():
         use_mask        = args.use_mask, 
         downsample      = args.down,
         t2w             = args.controlnet | args.use_T2W,
+        t2w_offset      = args.t2w_offset,
         upsample        = args.upsample,
     ) 
     test_dataset = MyDataset(
@@ -66,6 +67,7 @@ def main():
         use_mask        = args.use_mask, 
         downsample      = args.down,
         t2w             = args.controlnet | args.use_T2W,
+        t2w_offset      = args.t2w_offset,
         upsample        = args.upsample,
     ) 
     train_dataloader = DataLoader(train_dataset, batch_size = args.batch_size, shuffle=True)

@@ -30,7 +30,7 @@ def main():
         dim_mults       = tuple(args.dim_mults),
         self_condition  = args.self_condition,
         controlnet      = args.controlnet,
-        concat_t2w      = args.use_T2W
+        concat_t2w      = args.use_T2W,
     )
 
     diffusion = Diffusion(
@@ -59,7 +59,8 @@ def main():
         is_finetune     = args.finetune,
         use_mask        = args.use_mask, 
         downsample      = args.down,
-        t2w             = args.controlnet | args.use_T2W
+        t2w             = args.controlnet | args.use_T2W,
+        t2w_offset      = args.t2w_offset, 
     ) 
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
 
@@ -67,12 +68,12 @@ def main():
     save_name = args.save_name if args.save_name is not None else os.path.basename(os.path.dirname(args.checkpoint))
     test_data = 'HistoMRI' if args.finetune else 'PICAI'
     
+    visualize_variability_t2w(diffusion, dataloader, args.batch_size, device, output_name=f'{save_name}_{test_data}')
     # visualize_variability(diffusion, dataloader, args.batch_size, device, output_name=f'{save_name}_{test_data}', use_T2W=args.use_T2W)
-
     # visualize_batch(diffusion, dataloader, args.batch_size, device, output_name=f'{save_name}_{test_data}', use_T2W=args.use_T2W)
     
     print('Evaluating...')
-    evaluate_results(diffusion, dataloader, device, args.batch_size, use_T2W=args.use_T2W)
+    # evaluate_results(diffusion, dataloader, device, args.batch_size, use_T2W=args.use_T2W)
     
 
 if __name__ == '__main__':

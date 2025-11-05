@@ -18,6 +18,7 @@ parser.add_argument('--lr',                 type=float,default=8e-5)
 parser.add_argument('--n_epochs',           type=int,  default=40000)
 parser.add_argument('--ema_decay',          type=float,default=0.995)
 parser.add_argument('--blank_prob',         type=float,default=0)
+parser.add_argument('--t2w_offset',         type=int,  default=None)
 # Log process
 parser.add_argument('--save_every',         type=int,  default=2000)
 parser.add_argument('--sample_every',       type=int,  default=2000)
