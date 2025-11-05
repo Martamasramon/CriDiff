@@ -33,6 +33,7 @@ class Trainer(object):
         *,
         use_t2w                     = False,
         use_t2w_embed               = False,
+        finetune_controlnet         = False,
         batch_size                  = 16,
         img_size                    = 64,
         gradient_accumulate_every   = 1,
@@ -58,10 +59,24 @@ class Trainer(object):
         self.model          = diffusion_model
         self.channels       = diffusion_model.input_img_channels
         is_ddim_sampling    = diffusion_model.is_ddim_sampling
-        
+
+        self.img_size       = img_size        
         self.use_t2w        = use_t2w
         self.use_t2w_embed  = use_t2w_embed
-        self.img_size       = img_size
+        self.finetune_controlnet = finetune_controlnet
+        
+        if self.finetune_controlnet:
+            assert getattr(self.model, "controlnet", None) is not None, "finetune_controlnet_only=True but model.controlnet is None."
+
+            # Freeze main model only
+            for p in self.model.parameters():
+                p.requires_grad = False
+            for p in self.model.controlnet.parameters():
+                p.requires_grad = True
+
+            self.trainable_params = [p for p in self.model.parameters() if p.requires_grad]
+        else:
+            self.trainable_params = list(self.model.parameters())
         
         # sampling and training hyperparameters
         assert has_int_squareroot(num_samples), 'number of samples must have an integer square root'
@@ -80,7 +95,7 @@ class Trainer(object):
         self.train_dataloader = cycle(self.accelerator.prepare(train_dataloader))
         self.test_dataloader  = cycle(self.accelerator.prepare(test_dataloader))
 
-        self.opt = Adam(diffusion_model.parameters(), lr = lr, betas = adam_betas)
+        self.opt = Adam(self.trainable_params, lr = lr, betas = adam_betas)
 
         # for logging results in a folder periodically
         if self.accelerator.is_main_process:
@@ -141,7 +156,11 @@ class Trainer(object):
 
     def calc_loss(self, train=True):
         if train:
-            self.model.train()
+            if self.finetune_controlnet:
+                self.model.eval()
+                self.model.controlnet.train()
+            else:
+                self.model.train()
         else:
             self.model.eval()
             
@@ -236,7 +255,7 @@ class Trainer(object):
                 data, total_loss_test , total_mse_test , total_percpt_test , total_ssim_test  = self.calc_loss(train=False)
                 
                 accelerator.wait_for_everyone()
-                accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+                accelerator.clip_grad_norm_(self.trainable_params, self.max_grad_norm)
 
                 self.opt.step()
                 self.opt.zero_grad()

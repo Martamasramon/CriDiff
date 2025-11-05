@@ -45,7 +45,7 @@ def main():
     if args.checkpoint:
         checkpoint = torch.load(args.checkpoint, map_location=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
         diffusion.load_state_dict(checkpoint['model'])
-        
+    
     # Dataset and dataloader
     train_dataset = MyDataset(
         folder, 
@@ -79,6 +79,7 @@ def main():
         test_dataloader,
         accelerator,
         use_t2w             = args.controlnet | args.use_T2W,
+        finetune_controlnet = args.controlnet,
         batch_size          = args.batch_size,
         lr                  = args.lr,
         train_num_steps     = args.n_epochs,

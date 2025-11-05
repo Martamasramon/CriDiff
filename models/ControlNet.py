@@ -73,7 +73,7 @@ class ControlNet(nn.Module):
         """
         
         ctrl = self.init_control_conv(control)
-        x    = self.init_main_conv(x)
+        x    = self.init_main_conv(main_input)
         x    = x + ctrl
                 
         residuals = []
