@@ -15,12 +15,14 @@ nvidia-smi
 export PATH=/share/apps/python-3.9.5-shared/bin:$PATH
 export LD_LIBRARY_PATH=/share/apps/python-3.9.5-shared/lib:$LD_LIBRARY_PATH
 
-source CriDiff_env/bin/activate
-export PATH="CriDiff_env/bin:$PATH"
+source /cluster/project7/ProsRegNet_CellCount/CriDiff/CriDiff_env/bin/activate
+export PATH="/cluster/project7/ProsRegNet_CellCount/CriDiff/CriDiff_env/bin:$PATH"
 
 cd diffusion_basic
-python3 test.py --checkpoint './pretrain_down4/model-best.pt' --down 4
-python3 test.py --checkpoint './concat_down8/model-best.pt' --down 8 --use_T2W
+python3 test.py --checkpoint './concat_down8/model-best.pt' --use_T2W --down 8 --t2w_offset 5
+python3 test.py --checkpoint './concat_down8/model-best.pt' --use_T2W --down 8 --t2w_offset 15
+python3 test.py --checkpoint './concat_down8/model-best.pt' --use_T2W --down 8 --t2w_offset 20
+python3 test.py --checkpoint './concat_down8/model-best.pt' --use_T2W --down 8 --t2w_offset 50
 
 date
 

@@ -159,7 +159,7 @@ class Trainer(object):
                      
             with self.accelerator.autocast():
                 control = data['T2W_condition'] if self.model.controlnet else None
-                t2w_in  = data['T2W_condition'] if self.use_t2w else None
+                t2w_in  = data['T2W_condition'] if (self.use_t2w and self.model.controlnet is None) else None
                 if 'ADC_target' in data.keys():
                     defined_target = data['ADC_target'] 
                     eval_transform = downsample_transform(self.img_size) 
@@ -168,9 +168,9 @@ class Trainer(object):
                 
                 if self.use_t2w_embed:
                     data['T2W_embed'] = [t.squeeze(1) for t in data['T2W_embed']]
-                    loss, mse, perct, ssim = self.model(data['ADC_input'], data['ADC_condition'], control, data['T2W_embed'], defined_target, eval_transform)
+                    loss, mse, perct, ssim = self.model(data['ADC_input'], data['ADC_condition'], data['T2W_embed'], control, defined_target, eval_transform)
                 else:
-                    loss, mse, perct, ssim = self.model(data['ADC_input'], data['ADC_condition'], control, t2w_in,            defined_target, eval_transform)
+                    loss, mse, perct, ssim = self.model(data['ADC_input'], data['ADC_condition'], t2w_in,            control,  defined_target, eval_transform)
                 
                 total_loss   += loss.item()  / self.gradient_accumulate_every
                 total_mse    += mse.item()   / self.gradient_accumulate_every
@@ -214,7 +214,7 @@ class Trainer(object):
                     images    = self.ema.ema_model.sample(batch_size=low_res.shape[0], low_res=low_res, t2w=t2w_embed)
                 else:
                     control = t2w if self.model.controlnet else None
-                    t2w_in  = t2w if self.model.concat_t2w else None
+                    t2w_in  = t2w if (self.model.concat_t2w and self.model.controlnet is None) else None
                     images  = self.ema.ema_model.sample(batch_size=low_res.shape[0], low_res=low_res, control=control, t2w=t2w_in)
                     
                 all_images_list.append(images)

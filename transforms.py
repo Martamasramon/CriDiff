@@ -1,9 +1,9 @@
-from torchvision        import transforms as T
-import torch
-
-import numpy as np
+from torchvision            import transforms as T
+from torchvision.transforms import functional as TF
 import torch
 import torch.nn.functional as F
+import numpy as np
+import random
 
 def _ensure_tuple3(x):
     return (x, x, x) if isinstance(x, int) else tuple(x)
@@ -60,6 +60,43 @@ def center_crop_3d(v: torch.Tensor, size):
         out = F.pad(out, pad, mode="constant", value=0.0)
     return out
 
+
+class RandomJitteredCenterCrop:
+    """
+    Crop a fixed-size box whose center is randomly jittered from the image center.
+    You can control the max jitter in pixels or as a fraction of the image size.
+    """
+    def __init__(self, size, max_offset_px=None, max_offset_frac=None):
+        self.size = (size, size)
+   
+        assert (max_offset_px is not None) ^ (max_offset_frac is not None), \
+            "Specify exactly one of max_offset_px or max_offset_frac"
+            
+        self.max_offset_px   = max_offset_px
+        self.max_offset_frac = max_offset_frac
+
+    def __call__(self, img):
+        w, h   = img.size        
+        ch, cw = self.size
+        cx, cy = w // 2, h // 2
+
+        # max jitter in pixels
+        if self.max_offset_px is not None:
+            ox = oy = int(self.max_offset_px)
+        else:
+            ox = int(self.max_offset_frac * w)
+            oy = int(self.max_offset_frac * h)
+
+        # sample jitter
+        dx = random.randint(-ox, ox)
+        dy = random.randint(-oy, oy)
+
+        # top-left corner of crop (clamped to image bounds)
+        left = max(0, min(cx - cw // 2 + dx, w - cw))
+        top  = max(0, min(cy - ch // 2 + dy, h - ch))
+
+        return TF.crop(img, top, left, ch, cw)
+    
 def resize_3d(v: torch.Tensor, size):
     """
     v: [1,H,W,D] -> [1,h,w,d] with trilinear.
@@ -99,7 +136,7 @@ class Transforms():
         return T.Compose([
             T.CenterCrop(self.adc_size),
             T.Resize(self.adc_size//self.downsample, interpolation=T.InterpolationMode.NEAREST),
-            T.Resize(self.adc_size,             interpolation=T.InterpolationMode.NEAREST),
+            T.Resize(self.adc_size,                  interpolation=T.InterpolationMode.NEAREST),
             T.Lambda(lambda img: torch.tensor(np.array(img), dtype=torch.float32).unsqueeze(0) / 255) #T.ToTensor(), 255???
         ])
     def get_highres(self):
@@ -113,12 +150,25 @@ class Transforms():
             T.Resize(self.adc_size, interpolation=T.InterpolationMode.NEAREST),
             T.ToTensor()
         ]) 
+        
     def get_all_transforms(self):
         return {
-            'ADC_input'    : self.get_lowres(),
-            'ADC_condition': self.get_highres(),
+            'ADC_input'    : self.get_highres(),
+            'ADC_condition': self.get_lowres(),
             'T2W_condition': self.get_t2w()
         }
+        
+class TransformsOffsetT2W(Transforms):
+    def __init__(self, adc_size, downsample, max_offset_px):
+        super().__init__(adc_size, downsample)
+        self.max_offset_px = max_offset_px
+        
+    def get_t2w(self):  
+        return T.Compose([
+            RandomJitteredCenterCrop(self.adc_size*2, max_offset_px=self.max_offset_px),
+            T.Resize(self.adc_size, interpolation=T.InterpolationMode.NEAREST),
+            T.ToTensor()
+        ]) 
 
 class TransformsUpsample(Transforms):
     def __init__(self, *args):
@@ -165,14 +215,17 @@ class Transforms3D(Transforms):
     def get_t2w(self):  
         return lambda arr: center_crop_3d(_pre(arr), self.image_size)
 
-def get_transforms(dims, image_size, downsample, upsample=False):
-    if dims == 2:
-        transform = TransformsUpsample(image_size, downsample) if upsample else Transforms(image_size, downsample)
+def get_transforms(dims, image_size, downsample, upsample=False, t2w_offset=None):
+    if t2w_offset is not None:
+        transforms = TransformsOffsetT2W(image_size, downsample, t2w_offset)
     else:
-        transform = Transforms3D(image_size, downsample)
+        if dims == 2:
+            transforms = TransformsUpsample(image_size, downsample) if upsample else Transforms(image_size, downsample)
+        else:
+            transforms = Transforms3D(image_size, downsample)
         
-    return transform.get_all_transforms()
-
+    return transforms.get_all_transforms()
+    
 def downsample_transform(size):  
     return T.Compose([
         T.Resize(size, interpolation=T.InterpolationMode.BICUBIC),

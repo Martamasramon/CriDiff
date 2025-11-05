@@ -344,17 +344,17 @@ class Diffusion(nn.Module):
 
 
     def forward(self, 
-                img, 
-                low_res, 
-                control = None, 
-                t2w     = None, 
+                input_img, 
+                condition_adc, 
+                condition_t2w  = None, 
+                control        = None, 
                 defined_target = None,             
                 eval_transform = None,
                 *args, 
                 **kwargs
         ):
-        b, c, h, w, device, img_size, = *img.shape, img.device, self.image_size
+        b, c, h, w, device, img_size, = *input_img.shape, input_img.device, self.image_size
         assert h == img_size and w == img_size, f'height and width of image must be {img_size}'
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
         
-        return self.p_losses(self.normalize(img),  low_res, t, control, t2w, defined_target, eval_transform, *args, **kwargs)
+        return self.p_losses(self.normalize(input_img), condition_adc, t, control, condition_t2w, defined_target, eval_transform, *args, **kwargs)

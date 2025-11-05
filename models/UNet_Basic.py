@@ -33,7 +33,7 @@ class UNet_Basic(nn.Module):
         self_cond_channels      = 1 if self_condition else 0
         t2w_channels            = 1 if concat_t2w else 0 
         input_channels          = self.mask_channels + cond_channels + self_cond_channels + t2w_channels
-        self.controlnet         = ControlNet(dim, dim_mults, 1, with_time_emb) if controlnet else False
+        self.controlnet         = ControlNet(dim, dim_mults, 1, input_channels, with_time_emb) if controlnet else None
         self.concat_t2w         = concat_t2w
 
         dims_mask        = [dim, *map(lambda m: dim * m, dim_mults)]
@@ -116,17 +116,17 @@ class UNet_Basic(nn.Module):
             x_self_cond = default(x_self_cond, lambda: torch.zeros_like(input_x))
             x = torch.cat((x, x_self_cond), dim=1)
         
-        x = self.init_conv(x)
         t = self.time_mlp(time) if exists(self.time_mlp) else None
         
         if (control is not None) and (self.controlnet is not None):
-            ctrl_res = iter(self.controlnet(control, time))
+            ctrl_res = iter(self.controlnet(x, control, t))
             def add_ctrl(z): 
                 return z + next(ctrl_res)
         else:
             def add_ctrl(z): 
                 return z
 
+        x = self.init_conv(x)
         residuals = []   
              
         # ---- DOWN ---- #
@@ -142,10 +142,10 @@ class UNet_Basic(nn.Module):
 
         # --- UP --- #
         for conv1, conv2, upsample in self.ups:
-            x = torch.cat((x, residuals.pop()), dim=1);     x = add_ctrl(conv1(x, t))
-            x = torch.cat((x, residuals.pop()), dim=1);     x = add_ctrl(conv2(x, t))
+            x = torch.cat((x, residuals.pop()), dim=1);     x = conv1(x, t)
+            x = torch.cat((x, residuals.pop()), dim=1);     x = conv2(x, t)
             x = upsample(x)
 
-        x = add_ctrl(self.final_res_block(x, t))
+        x = self.final_res_block(x, t)
         return self.final_conv(x)
 

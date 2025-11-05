@@ -1,6 +1,6 @@
 #$ -l tmem=64G,h_vmem=64G
 #$ -l gpu=true
-#$ -l h_rt=20:00:00
+#$ -l h_rt=40:00:00
 
 #$ -S /bin/bash
 #$ -j y

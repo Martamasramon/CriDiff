@@ -1,4 +1,4 @@
-#$ -l tmem=64G,h_vmem=64G
+#$ -l tmem=512G,h_vmem=512G
 #$ -l gpu=true
 #$ -l h_rt=20:00:00
 
@@ -7,7 +7,7 @@
 #$ -V
 
 #$ -wd /cluster/project7/ProsRegNet_CellCount/CriDiff/
-#$ -N Pretrain_basic
+#$ -N Pretrain_upsample
 
 date
 nvidia-smi
@@ -20,6 +20,6 @@ export PATH="CriDiff_env/bin:$PATH"
 
 cd diffusion_basic
 
-python3 train.py --results_folder './concat_down8_mask' --down 8 --use_T2W --use_mask
+python3 train.py --results_folder './test_x4' --use_T2W --upsample --down 4 
 
 date
