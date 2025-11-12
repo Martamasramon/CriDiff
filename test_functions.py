@@ -47,12 +47,15 @@ def add_batch_metrics_to_list(prediction, highres, mse_list, psnr_list, ssim_lis
         ssim_list.append(ssim)
     return mse_list, psnr_list, ssim_list
 
-def run_diffusion_with_t2w(batch, device, diffusion, lowres):
+def run_diffusion_with_t2w(batch, device, diffusion, lowres, controlnet=False):
     t2w_input     = adapt_input_dims(batch)
     t2w_input_gpu = to_device(t2w_input, device)
     
     with torch.no_grad():
-        return diffusion.sample(lowres, batch_size=lowres.shape[0], t2w=t2w_input_gpu)
+        if controlnet:
+            return diffusion.sample(lowres, batch_size=lowres.shape[0], control=t2w_input_gpu)
+        else:
+            return diffusion.sample(lowres, batch_size=lowres.shape[0], t2w=t2w_input_gpu)
                 
 def run_diffusion_without_t2w(batch, device, diffusion, lowres):
     with torch.no_grad():
@@ -66,14 +69,14 @@ def get_target_prediction(batch, model_output):
     else:
         return batch['ADC_input'], model_output
     
-def evaluate_results(diffusion, dataloader, device, batch_size, use_T2W=False):
+def evaluate_results(diffusion, dataloader, device, batch_size, use_T2W=False, controlnet=False):
     mse_list, psnr_list, ssim_list = [], [], []
     
     for batch in dataloader:
         adc_condition = batch['ADC_condition'].to(device)
         
         if use_T2W:
-            model_output = run_diffusion_with_t2w(batch, device, diffusion, adc_condition)
+            model_output = run_diffusion_with_t2w(batch, device, diffusion, adc_condition, controlnet)
         else:
             model_output = run_diffusion_without_t2w(batch, device, diffusion, adc_condition)
             
@@ -105,7 +108,7 @@ def plot_image(image, fig, axes, i, j, colorbar=True, std=False):
     # if colorbar:
     #     fig.colorbar(img_plot, ax=axes[i, j])
     
-def visualize_batch(diffusion, dataloader, batch_size, device, use_T2W=False, output_name="test_image"):
+def visualize_batch(diffusion, dataloader, batch_size, device, use_T2W=False, controlnet=False, output_name="test_image"):
     ncols = 5 if use_T2W else 4
     fig, axes = plt.subplots(nrows=batch_size, ncols=ncols, figsize=(3*ncols,3*batch_size))
     axes[0,0].set_title('Low res (Input)')
@@ -131,7 +134,10 @@ def visualize_batch(diffusion, dataloader, batch_size, device, use_T2W=False, ou
                 t2w_image = True
 
             with torch.no_grad():
-                pred  = diffusion.sample(lowres, batch_size=lowres.shape[0], t2w=t2w_input)
+                if controlnet:
+                    pred  = diffusion.sample(lowres, batch_size=lowres.shape[0], control=t2w_input)
+                else:
+                    pred  = diffusion.sample(lowres, batch_size=lowres.shape[0], t2w=t2w_input)
         else:
             with torch.no_grad():
                 pred  = diffusion.sample(lowres, batch_size=lowres.shape[0])
@@ -171,7 +177,7 @@ def visualize_batch(diffusion, dataloader, batch_size, device, use_T2W=False, ou
     print(f"Saved visualization to {save_path}")
 
  
-def visualize_variability(diffusion, dataloader, batch_size, device, use_T2W=False, output_name="test_image", num_rep=5, avg_std=False):
+def visualize_variability(diffusion, dataloader, batch_size, device, use_T2W=False, controlnet=False, output_name="test_image", num_rep=5, avg_std=False):
     ncols = 2+2*num_rep if use_T2W else 2+num_rep
     ncols = ncols+2 if avg_std else ncols
     fig, axes = plt.subplots(nrows=batch_size, ncols=ncols, figsize=(3*ncols,3*batch_size))
@@ -198,7 +204,10 @@ def visualize_variability(diffusion, dataloader, batch_size, device, use_T2W=Fal
             # Ignoring embedding for injection models
             t2w_input = batch['T2W_condition'].to(device)
             with torch.no_grad():
-                pred  = diffusion.sample(lowres, batch_size=lowres.shape[0], t2w=t2w_input)
+                if controlnet:
+                    pred  = diffusion.sample(lowres, batch_size=lowres.shape[0], control=t2w_input)
+                else:
+                    pred  = diffusion.sample(lowres, batch_size=lowres.shape[0], t2w=t2w_input)
         else:
             with torch.no_grad():
                 pred  = diffusion.sample(lowres, batch_size=lowres.shape[0])
@@ -229,7 +238,7 @@ def visualize_variability(diffusion, dataloader, batch_size, device, use_T2W=Fal
 
  
  
-def visualize_variability_t2w(diffusion, dataloader, batch_size, device, output_name="test_image", num_rep=5, avg_std=False):
+def visualize_variability_t2w(diffusion, dataloader, batch_size, device, controlnet=False, output_name="test_image", num_rep=5, avg_std=False):
     ncols = 2+2*num_rep
     ncols = ncols+2 if avg_std else ncols
     fig, axes = plt.subplots(nrows=batch_size, ncols=ncols, figsize=(3*ncols,3*batch_size))
@@ -260,8 +269,11 @@ def visualize_variability_t2w(diffusion, dataloader, batch_size, device, output_
         t2w_input = torch.stack(t2w_batch, dim=0).to(device)
         
         with torch.no_grad():
-            pred  = diffusion.sample(lowres, batch_size=lowres.shape[0], t2w=t2w_input)
-    
+            if controlnet:
+                pred  = diffusion.sample(lowres, batch_size=lowres.shape[0], control=t2w_input)
+            else:
+                pred  = diffusion.sample(lowres, batch_size=lowres.shape[0], t2w=t2w_input)
+                
         all_pred.append(format_image(pred))
         all_t2w.append(format_image(t2w_input))
         

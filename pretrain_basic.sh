@@ -20,6 +20,6 @@ export PATH="/cluster/project7/ProsRegNet_CellCount/CriDiff/CriDiff_env/bin:$PAT
 
 cd diffusion_basic
 
-python3 train.py --results_folder './test_x4' --use_T2W --upsample --down 4 --batch_size 8
+python3 train.py --results_folder './test'
 
 date
