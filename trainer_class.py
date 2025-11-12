@@ -51,7 +51,8 @@ class Trainer(object):
         split_batches               = True,
         inception_block_idx         = 2048,
         max_grad_norm               = 1.,
-        save_best_and_latest_only   = False
+        save_best_and_latest_only   = False,
+        wandb_run                   = None, 
     ):
         super().__init__()
 
@@ -115,6 +116,7 @@ class Trainer(object):
             self.best_mse = 1
 
         self.save_best_and_latest_only = save_best_and_latest_only
+        self.run = wandb_run 
 
     @property
     def device(self):
@@ -209,7 +211,8 @@ class Trainer(object):
             milestone       = self.step // self.sample_every
             batches         = num_to_groups(self.num_samples, self.batch_size)
             sample_lowres   = data['ADC_condition'][:self.num_samples].to(self.accelerator.device)
-            sample_t2w      = data['T2W_condition'][:self.num_samples].to(self.accelerator.device) if self.model.controlnet | self.model.concat_t2w else None
+            sample_t2w      = data['T2W_condition'][:self.num_samples].to(self.accelerator.device) if (self.model.controlnet is not None) or self.model.concat_t2w else None
+            
             if 'T2W_embed' in data:
                 sample_t2w_embed = []
                 for i in range(4):
@@ -282,6 +285,17 @@ class Trainer(object):
                         else:
                             self.save(milestone)
                 
+                if self.run is not None:
+                    self.run.log({
+                        "Train - total": total_loss_train,
+                        "Train - MSE": total_mse_train,
+                        "Train - perceptual": total_percpt_train,
+                        "Train - SSIM": total_ssim_train,
+                        "Test - total": total_loss_test,
+                        "Test - MSE": total_mse_test,
+                        "Test - perceptual": total_percpt_test,
+                        "Test - SSIM": total_ssim_test,
+                    })
                 # Update pbar
                 if self.step % 100 == 0:
                     pbar.set_description(f"Train loss: {total_loss_train:.4f} (MSE: {total_mse_train:.4f},  perct: {total_percpt_train:.4f}, SSIM: {total_ssim_train:.4f},)\n"+

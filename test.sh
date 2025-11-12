@@ -23,7 +23,9 @@ python3 test.py --checkpoint './pretrain/model-8.pt'
 python3 test.py --checkpoint './pretrain_mask/model-best.pt' --use_mask 
 python3 test.py --checkpoint './pretrain_down4/model-best.pt' --down 4
 python3 test.py --checkpoint './pretrain_down8/model-best.pt' --down 8
-python3 test.py --checkpoint './test_concat/model-best.pt' --use_T2W
+
+python3 test.py --checkpoint './test_controlnet/model-best.pt' --down 8 --controlnet
+
 
 python3 test.py --checkpoint './concat_prob02/model-best.pt' --use_T2W
 python3 test.py --checkpoint './concat_down4_prob03/model-best.pt' --use_T2W --down 4

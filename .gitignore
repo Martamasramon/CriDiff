@@ -3,6 +3,10 @@
 /Datasets
 *.o*
 *.pt
+/logs/*.csv
+/logs/*.json
 /results
 /results_*
 *.png
+*/wandb
+*.jpg
